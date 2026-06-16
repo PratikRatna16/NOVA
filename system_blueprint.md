@@ -1,152 +1,126 @@
-# Lightweight Local System Monitoring Utility in Python
+# Daily Habit Tracker CLI Technical Specification
 ==============================================
 
-## Introduction
----------------
+## Overview
+------------
 
-This document outlines the core requirements and technical specifications for a lightweight local system monitoring utility written in Python. The utility aims to log real-time CPU percentages, RAM consumption metrics, and active disk IO status.
+The Daily Habit Tracker CLI is a command-line application designed to help users track and manage their daily habits. The application will allow users to create, update, and delete habits, as well as view their progress over time.
 
-## Requirements
----------------
+## Core Requirements
+--------------------
 
-*   Python 3.8 or later
-*   `psutil` library for system monitoring
-*   `logging` library for log management
-*   `schedule` library for scheduling tasks (optional)
+### 1. User Authentication
 
-## System Monitoring Modules
----------------------------
+* **Requirement**: Users must be able to create an account and log in to access their habit data.
+* **Implementation**:
+	+ Use a secure password hashing algorithm (e.g. bcrypt) to store user passwords.
+	+ Implement a login system that checks user credentials against stored data.
 
-### CPU Monitoring
+### 2. Habit Management
 
-*   **Module Name:** `cpu_monitor.py`
-*   **Description:** Logs real-time CPU percentages
-*   **Functions:**
-    *   `get_cpu_percent()`: Returns the current CPU percentage
-    *   `log_cpu_percent()`: Logs the current CPU percentage
-*   **Example Code:**
-    ```python
-import psutil
-import logging
+* **Requirement**: Users must be able to create, update, and delete habits.
+* **Implementation**:
+	+ Design a habit data model that includes fields for:
+		- Habit name
+		- Habit description
+		- Habit type (e.g. daily, weekly, monthly)
+		- Habit start date
+		- Habit end date (optional)
+	+ Implement CRUD (Create, Read, Update, Delete) operations for habits.
 
-def get_cpu_percent():
-    return psutil.cpu_percent()
+### 3. Habit Tracking
 
-def log_cpu_percent():
-    cpu_percent = get_cpu_percent()
-    logging.info(f"CPU Percentage: {cpu_percent}%")
-```
+* **Requirement**: Users must be able to log their daily progress for each habit.
+* **Implementation**:
+	+ Design a habit log data model that includes fields for:
+		- Habit ID (foreign key referencing the habit data model)
+		- Log date
+		- Log status (e.g. completed, missed, skipped)
+	+ Implement a system for users to log their daily progress.
 
-### RAM Monitoring
+### 4. Progress Visualization
 
-*   **Module Name:** `ram_monitor.py`
-*   **Description:** Logs real-time RAM consumption metrics
-*   **Functions:**
-    *   `get_ram_usage()`: Returns the current RAM usage
-    *   `log_ram_usage()`: Logs the current RAM usage
-*   **Example Code:**
-    ```python
-import psutil
-import logging
+* **Requirement**: Users must be able to view their progress over time.
+* **Implementation**:
+	+ Design a system for generating visualizations of user progress (e.g. charts, graphs).
+	+ Use a library or framework for creating visualizations (e.g. matplotlib, seaborn).
 
-def get_ram_usage():
-    return psutil.virtual_memory()
+### 5. CLI Interface
 
-def log_ram_usage():
-    ram_usage = get_ram_usage()
-    logging.info(f"RAM Usage: {ram_usage.percent}%")
-```
+* **Requirement**: The application must have a user-friendly CLI interface.
+* **Implementation**:
+	+ Use a CLI framework or library (e.g. Click, argparse) to create a user-friendly interface.
+	+ Implement commands for:
+		- Creating, updating, and deleting habits
+		- Logging daily progress
+		- Viewing progress visualizations
 
-### Disk IO Monitoring
+## System Components
+---------------------
 
-*   **Module Name:** `disk_io_monitor.py`
-*   **Description:** Logs active disk IO status
-*   **Functions:**
-    *   `get_disk_io()`: Returns the current disk IO statistics
-    *   `log_disk_io()`: Logs the current disk IO statistics
-*   **Example Code:**
-    ```python
-import psutil
-import logging
+### 1. Database
 
-def get_disk_io():
-    return psutil.disk_io_counters()
+* **Requirement**: The application must have a database to store user data and habit logs.
+* **Implementation**:
+	+ Use a relational database management system (e.g. MySQL, PostgreSQL).
+	+ Design a database schema that includes tables for users, habits, and habit logs.
 
-def log_disk_io():
-    disk_io = get_disk_io()
-    logging.info(f"Disk IO: read={disk_io.read_bytes}, write={disk_io.write_bytes}")
-```
+### 2. Backend
 
-## Logging Module
+* **Requirement**: The application must have a backend to handle user requests and interact with the database.
+* **Implementation**:
+	+ Use a programming language (e.g. Python, JavaScript) to create a backend API.
+	+ Implement API endpoints for:
+		- User authentication
+		- Habit management
+		- Habit tracking
+		- Progress visualization
+
+### 3. Frontend
+
+* **Requirement**: The application must have a frontend to provide a user-friendly CLI interface.
+* **Implementation**:
+	+ Use a CLI framework or library (e.g. Click, argparse) to create a user-friendly interface.
+	+ Implement commands for:
+		- Creating, updating, and deleting habits
+		- Logging daily progress
+		- Viewing progress visualizations
+
+## Technical Stack
 ------------------
 
-*   **Module Name:** `logger.py`
-*   **Description:** Manages log output and rotation
-*   **Functions:**
-    *   `init_logger()`: Initializes the logger
-    *   `log_message()`: Logs a message
-*   **Example Code:**
-    ```python
-import logging
+* **Programming Language**: Python 3.x
+* **Database**: MySQL or PostgreSQL
+* **CLI Framework**: Click or argparse
+* **Visualization Library**: matplotlib or seaborn
 
-def init_logger():
-    logging.basicConfig(filename='system_monitor.log', level=logging.INFO)
+## Development Roadmap
+----------------------
 
-def log_message(message):
-    logging.info(message)
-```
+### Phase 1: User Authentication and Habit Management
 
-## Scheduling Module (Optional)
-------------------------------
+* **Duration**: 2 weeks
+* **Milestones**:
+	+ Implement user authentication system
+	+ Design and implement habit data model
+	+ Implement CRUD operations for habits
 
-*   **Module Name:** `scheduler.py`
-*   **Description:** Schedules tasks to run at regular intervals
-*   **Functions:**
-    *   `schedule_task()`: Schedules a task to run at a specified interval
-*   **Example Code:**
-    ```python
-import schedule
-import time
+### Phase 2: Habit Tracking and Progress Visualization
 
-def schedule_task(task, interval):
-    schedule.every(interval).seconds.do(task)
+* **Duration**: 3 weeks
+* **Milestones**:
+	+ Design and implement habit log data model
+	+ Implement system for logging daily progress
+	+ Implement system for generating progress visualizations
 
-def run_schedule():
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-```
+### Phase 3: CLI Interface and Testing
 
-## Main Program
-----------------
-
-*   **File Name:** `main.py`
-*   **Description:** Runs the system monitoring utility
-*   **Example Code:**
-    ```python
-import cpu_monitor
-import ram_monitor
-import disk_io_monitor
-import logger
-import scheduler
-
-def main():
-    logger.init_logger()
-    cpu_monitor.log_cpu_percent()
-    ram_monitor.log_ram_usage()
-    disk_io_monitor.log_disk_io()
-
-    # Schedule tasks to run at regular intervals (optional)
-    scheduler.schedule_task(cpu_monitor.log_cpu_percent, 1)
-    scheduler.schedule_task(ram_monitor.log_ram_usage, 1)
-    scheduler.schedule_task(disk_io_monitor.log_disk_io, 1)
-    scheduler.run_schedule()
-
-if __name__ == "__main__":
-    main()
-```
+* **Duration**: 2 weeks
+* **Milestones**:
+	+ Implement CLI interface using Click or argparse
+	+ Test application functionality and fix bugs
 
 ## Conclusion
 --------------
 
-This document outlines the core requirements and technical specifications for a lightweight local system monitoring utility in Python. The utility logs real-time CPU percentages, RAM consumption metrics, and active disk IO status. The code is structured into separate modules for each monitoring function, logging, and scheduling (optional). The main program runs the utility and schedules tasks to run at regular intervals (if desired).
+The Daily Habit Tracker CLI is a comprehensive application that will help users track and manage their daily habits. The application will have a user-friendly CLI interface, a robust backend, and a database to store user data and habit logs. The development roadmap outlines the key phases and milestones for building the application.

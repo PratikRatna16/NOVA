@@ -1,180 +1,64 @@
-**Audit Log: System Monitor Script Review**
+# Habit Tracker Audit Log
+## Introduction
+This audit log is a comprehensive review of the provided Habit Tracker Python script. The script is designed to manage daily habits, including user registration, habit creation, and progress tracking.
 
-**Overview**
-The system monitor script is designed to log real-time CPU percentages, RAM consumption metrics, and active disk IO status to a file named 'system_monitor.log'. The script uses the psutil library for system monitoring and the logging library for log management. Optional scheduling functionality is available using the schedule library.
+## Security Issues
+### 1. Password Hashing
+* The script uses a fallback password hashing mechanism (PBKDF2-HMAC-SHA256) when bcrypt is not available. While this is better than storing passwords in plaintext, it may not be as secure as bcrypt.
+* The password hashing iterations (390,000) may not be sufficient for modern security standards.
 
-**Code Organization and Structure**
-The script is well-structured into separate functions for each monitoring function, logging, and scheduling. This modular approach makes the code easy to maintain and understand. However, some functions can be further improved for better code reusability and readability.
+### 2. Input Validation
+* The script lacks comprehensive input validation for user input, which may lead to potential SQL injection or other security vulnerabilities.
+* The `normalize_username` function only checks for whitespace and length, but does not validate against other potential issues like username enumeration.
 
-**Security Findings**
+### 3. Session Management
+* The script stores session data in a JSON file, which may be vulnerable to tampering or unauthorized access.
+* The session file permissions are set to 0o600, but this may not be sufficient to prevent unauthorized access in all environments.
 
-1. **Error Handling**: The script uses try-except blocks to catch and log any errors that occur during execution. However, it does not provide any additional error handling mechanisms, such as retries or fallbacks, which can lead to data loss or incomplete logging.
-2. **Input Validation**: The script does not validate any user input, which can lead to potential security vulnerabilities if the script is modified to accept user input in the future.
-3. **Sensitive Data Exposure**: The script logs sensitive system metrics, such as CPU percentages and RAM usage, to a file named 'system_monitor.log'. While this is not a security vulnerability per se, it is essential to ensure that the log file is properly secured and access-controlled to prevent unauthorized access to sensitive system information.
+## Logic Flaws
+### 1. Habit Creation
+* The `create_habit` function does not validate if a habit with the same name already exists for the user.
+* The `start_date` and `end_date` validation only checks if the dates are in the correct format, but does not validate if the start date is before the end date.
 
-**Logic and Edge Cases**
+### 2. Progress Tracking
+* The `habit_progress_stats` function calculates the completion rate based on the total number of logs, which may not accurately reflect the user's progress if there are missing logs.
+* The `current_daily_streak` function only checks for consecutive completed logs, but does not account for skipped or missed logs.
 
-1. **Scheduling**: The script schedules tasks to run at regular intervals using the schedule library. However, it does not account for potential scheduling conflicts or overlapping tasks, which can lead to inconsistent logging or data loss.
-2. **Resource Utilization**: The script logs system metrics at regular intervals, which can lead to high resource utilization if the logging interval is too short. It is essential to balance the logging interval with system resource availability to prevent performance degradation.
-3. **Log File Management**: The script logs system metrics to a single file named 'system_monitor.log'. However, it does not provide any log file management mechanisms, such as log rotation or pruning, which can lead to log file growth and performance degradation.
+### 3. Error Handling
+* The script lacks comprehensive error handling, which may lead to unexpected behavior or crashes in case of errors.
+* The `main` function catches all exceptions and returns a generic error message, which may not provide sufficient information for debugging.
 
-**Dependency and Compatibility**
+## Bugs
+### 1. Database Connection
+* The `database_connection` function does not handle database connection errors properly, which may lead to crashes or unexpected behavior.
 
-1. **Library Dependencies**: The script depends on the psutil and schedule libraries, which can lead to compatibility issues if these libraries are not properly maintenance or updated.
-2. **Platform Compatibility**: The script is designed to run on platforms that support the psutil and schedule libraries. However, it does not account for potential platform-specific differences or incompatibilities, which can lead to errors or inconsistent behavior.
+### 2. Habit Log Creation
+* The `upsert_habit_log` function does not validate if the log date is in the future, which may lead to incorrect log creation.
 
-**Recommendations and Suggestions**
+### 3. Progress Chart Generation
+* The `generate_progress_chart` function does not handle errors properly, which may lead to crashes or unexpected behavior.
 
-1. **Improve Error Handling**: Implement additional error handling mechanisms, such as retries or fallbacks, to ensure that the script can recover from errors and continue logging system metrics.
-2. **Input Validation**: Implement input validation mechanisms to ensure that any user input is properly validated and sanitized to prevent potential security vulnerabilities.
-3. **Log File Management**: Implement log file management mechanisms, such as log rotation or pruning, to ensure that the log file does not grow indefinitely and cause performance degradation.
-4. **Scheduling Improvements**: Implement scheduling improvements, such as scheduling conflicts or overlapping tasks, to ensure that the script can run tasks at regular intervals without inconsistencies or data loss.
-5. **Resource Utilization**: Implement resource utilization monitoring to ensure that the script does not consume excessive system resources and cause performance degradation.
-6. **Code Refactoring**: Refactor the code to improve readability, maintainability, and reusability by breaking down large functions into smaller, more manageable functions.
-7. **Testing and Validation**: Implement comprehensive testing and validation to ensure that the script works as expected and can recover from errors or inconsistencies.
+## Recommendations
+### 1. Improve Password Hashing
+* Use a more secure password hashing algorithm like bcrypt or Argon2.
+* Increase the password hashing iterations to a more modern standard (e.g., 600,000).
 
-**Code Enhancements**
-To address the recommendations and suggestions mentioned above, the following code enhancements can be implemented:
+### 2. Enhance Input Validation
+* Implement comprehensive input validation for user input to prevent SQL injection and other security vulnerabilities.
+* Validate usernames against a more robust set of rules to prevent username enumeration.
 
-```python
-import psutil
-import logging
-import schedule
-import time
-import os
+### 3. Secure Session Management
+* Store session data in a more secure location, such as a secure cookie or a token-based authentication system.
+* Implement additional security measures to prevent unauthorized access to session data.
 
-# Initialize the logger
-def init_logger():
-    """
-    Initialize the logger with a basic configuration.
-    
-    The logger will write to a file named 'system_monitor.log' with an INFO level.
-    """
-    logging.basicConfig(filename='system_monitor.log', level=logging.INFO)
+### 4. Fix Logic Flaws
+* Implement habit name uniqueness validation in the `create_habit` function.
+* Validate start and end dates in the `create_habit` function to ensure that the start date is before the end date.
 
-# Log a message
-def log_message(message):
-    """
-    Log a message using the logging library.
-    
-    Args:
-        message (str): The message to log.
-    """
-    logging.info(message)
+### 5. Improve Error Handling
+* Implement comprehensive error handling throughout the script to provide more informative error messages and prevent crashes.
 
-# Get the current CPU percentage
-def get_cpu_percent():
-    """
-    Get the current CPU percentage.
-    
-    Returns:
-        float: The current CPU percentage.
-    """
-    return psutil.cpu_percent()
-
-# Log the current CPU percentage
-def log_cpu_percent():
-    """
-    Log the current CPU percentage.
-    """
-    cpu_percent = get_cpu_percent()
-    logging.info(f"CPU Percentage: {cpu_percent}%")
-
-# Get the current RAM usage
-def get_ram_usage():
-    """
-    Get the current RAM usage.
-    
-    Returns:
-        psutil._vm_memory: The current RAM usage.
-    """
-    return psutil.virtual_memory()
-
-# Log the current RAM usage
-def log_ram_usage():
-    """
-    Log the current RAM usage.
-    """
-    ram_usage = get_ram_usage()
-    logging.info(f"RAM Usage: {ram_usage.percent}%")
-
-# Get the current disk IO statistics
-def get_disk_io():
-    """
-    Get the current disk IO statistics.
-    
-    Returns:
-        psutil._io_counter: The current disk IO statistics.
-    """
-    return psutil.disk_io_counters()
-
-# Log the current disk IO statistics
-def log_disk_io():
-    """
-    Log the current disk IO statistics.
-    """
-    disk_io = get_disk_io()
-    logging.info(f"Disk IO: read={disk_io.read_bytes}, write={disk_io.write_bytes}")
-
-# Schedule a task to run at a specified interval
-def schedule_task(task, interval):
-    """
-    Schedule a task to run at a specified interval.
-    
-    Args:
-        task (function): The task to schedule.
-        interval (int): The interval at which to run the task.
-    """
-    schedule.every(interval).seconds.do(task)
-
-# Run the scheduled tasks
-def run_schedule():
-    """
-    Run the scheduled tasks.
-    """
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-# Log file management
-def manage_log_file():
-    """
-    Manage the log file to prevent growth and performance degradation.
-    """
-    log_file = 'system_monitor.log'
-    log_file_size = os.path.getsize(log_file)
-    if log_file_size > 1000000:  # 1 MB
-        with open(log_file, 'r') as file:
-            lines = file.readlines()
-        with open(log_file, 'w') as file:
-            file.writelines(lines[-100:])  # Keep the last 100 lines
-
-# Main function
-def main():
-    """
-    Main function.
-    
-    Initialize the logger, log the current system metrics, and schedule tasks to run at regular intervals.
-    """
-    init_logger()
-    log_cpu_percent()
-    log_ram_usage()
-    log_disk_io()
-
-    # Schedule tasks to run at regular intervals (optional)
-    schedule_task(log_cpu_percent, 1)
-    schedule_task(log_ram_usage, 1)
-    schedule_task(log_disk_io, 1)
-    schedule_task(manage_log_file, 60)  # Run log file management every minute
-
-    run_schedule()
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
-        print(f"An error occurred: {e}")
-```
-
-By implementing these recommendations and suggestions, the system monitor script can be improved to provide more robust and reliable system metrics logging, while also ensuring that the script can recover from errors and inconsistencies.
+### 6. Fix Bugs
+* Handle database connection errors properly in the `database_connection` function.
+* Validate log dates in the `upsert_habit_log` function to prevent incorrect log creation.
+* Handle errors properly in the `generate_progress_chart` function to prevent crashes or unexpected behavior.
