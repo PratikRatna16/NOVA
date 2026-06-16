@@ -8,6 +8,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from huggingface_hub import InferenceClient
 from langgraph.graph import StateGraph, END
 
+import time
+
 load_dotenv()
 
 # ── STATE ────────────────────────────────────────────
@@ -57,7 +59,19 @@ def call_coder(messages):
     for model_id in CODER_MODELS:
         try:
             print(f"🤖 Trying coder model: {model_id}")
-            return get_openrouter_llm(model_id).invoke(messages).content
+            start = time.time()
+            response = get_openrouter_llm(model_id).invoke(messages)
+            elapsed = time.time() - start
+            
+            # token usage
+            usage = response.response_metadata.get("token_usage", {})
+            input_tokens = usage.get("prompt_tokens", "?")
+            output_tokens = usage.get("completion_tokens", "?")
+            
+            print(f"✅ Model: {model_id}")
+            print(f"⏱ Time: {elapsed:.2f}s")
+            print(f"🪙 Tokens — Input: {input_tokens} | Output: {output_tokens}")
+            return response.content
         except Exception as e:
             print(f"⚠ {model_id} failed: {e} → trying next")
     print("⚠ All OpenRouter models failed → falling back to Groq")
@@ -81,7 +95,7 @@ def researcher_node(state: NovaState) -> NovaState:
 def coder_node(state: NovaState) -> NovaState:
     print("\n💻 [CODER] Writing code...")
     messages = [
-        SystemMessage(content="You are a senior Python engineer. Write clean, well-commented, production-ready code only."),
+        SystemMessage(content="You are a senior Python engineer. Write clean, well-commented, production-ready code only. Be concise — maximum 150 lines unless complexity genuinely demands more."),
         HumanMessage(content=(
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
             "Write a fully functional Python script with robust error handling."
