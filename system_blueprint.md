@@ -1,118 +1,125 @@
-# Port Scanner CLI Technical Specification
+# Budget Tracker CLI Technical Specification
 ==============================================
 
 ## Overview
 -----------
 
-The goal of this project is to design and implement a command-line interface (CLI) port scanner that can scan a range of ports and display their open/closed status along with the response time.
+The budget tracker CLI is a command-line application designed to help users manage their finances by tracking expenses across various categories. The application will provide features such as categorization, monthly reports, and CSV exports.
 
-## Requirements
----------------
-
-### Functional Requirements
-
-1. **Port Range Scanning**: The CLI should be able to scan a specified range of ports (e.g., 1-1024) on a given IP address or hostname.
-2. **Open/Closed Status**: The CLI should be able to determine whether each port is open or closed and display the status.
-3. **Response Time**: The CLI should be able to measure and display the response time for each port.
-4. **IP Address/Hostname Input**: The CLI should accept an IP address or hostname as input.
-5. **Port Range Input**: The CLI should accept a port range as input (e.g., 1-1024).
-6. **Timeout Option**: The CLI should have a timeout option to specify the maximum time to wait for a response.
-7. **Verbose Mode**: The CLI should have a verbose mode to display detailed information about the scanning process.
-
-### Non-Functional Requirements
-
-1. **Performance**: The CLI should be able to scan a range of ports quickly and efficiently.
-2. **Accuracy**: The CLI should be able to accurately determine the open/closed status of each port.
-3. **Security**: The CLI should be designed with security in mind to prevent potential vulnerabilities.
-
-## Design
----------
-
-### Architecture
-
-The port scanner CLI will consist of the following components:
-
-1. **Main Program**: The main program will handle user input, parse command-line arguments, and initiate the scanning process.
-2. **Scanner Module**: The scanner module will be responsible for scanning the specified range of ports and determining their open/closed status.
-3. **Response Time Module**: The response time module will be responsible for measuring the response time for each port.
-
-### Algorithms
-
-1. **Port Scanning Algorithm**: The port scanning algorithm will use a socket-based approach to connect to each port in the specified range.
-2. **Response Time Measurement Algorithm**: The response time measurement algorithm will use a timestamp-based approach to measure the time it takes to receive a response from each port.
-
-## Implementation
-----------------
-
-### Programming Language
-
-The port scanner CLI will be implemented in Python 3.x.
-
-### Dependencies
-
-The following dependencies will be used:
-
-1. **`socket` library**: for creating sockets and connecting to ports.
-2. **`time` library**: for measuring response times.
-3. **`argparse` library**: for parsing command-line arguments.
-
-### Code Structure
-
-The code will be organized into the following modules:
-
-1. **`main.py`**: the main program that handles user input and initiates the scanning process.
-2. **`scanner.py`**: the scanner module that scans the specified range of ports.
-3. **`response_time.py`**: the response time module that measures the response time for each port.
-
-## Example Use Cases
+## Core Requirements
 --------------------
 
-### Scanning a Range of Ports
+### 1. User Authentication
 
-```bash
-$ python port_scanner.py -i 192.168.1.1 -p 1-1024
-```
+* **Username and Password**: Users will be required to create a username and password to access the application.
+* **Password Hashing**: Passwords will be stored securely using a hashing algorithm (e.g., bcrypt).
 
-### Scanning a Range of Ports with Verbose Mode
+### 2. Category Management
 
-```bash
-$ python port_scanner.py -i 192.168.1.1 -p 1-1024 -v
-```
+* **Category Creation**: Users will be able to create custom categories (e.g., housing, food, transportation).
+* **Category Deletion**: Users will be able to delete existing categories.
+* **Category Editing**: Users will be able to edit category names.
 
-### Scanning a Range of Ports with Timeout Option
+### 3. Expense Tracking
 
-```bash
-$ python port_scanner.py -i 192.168.1.1 -p 1-1024 -t 5
-```
+* **Expense Addition**: Users will be able to add new expenses with the following details:
+	+ Date
+	+ Category
+	+ Amount
+	+ Description
+* **Expense Deletion**: Users will be able to delete existing expenses.
+* **Expense Editing**: Users will be able to edit existing expenses.
 
-## Command-Line Arguments
+### 4. Monthly Reports
+
+* **Report Generation**: The application will generate monthly reports summarizing expenses by category.
+* **Report Display**: Reports will be displayed in a human-readable format.
+
+### 5. CSV Exports
+
+* **CSV Generation**: The application will generate CSV files containing expense data.
+* **CSV Export**: Users will be able to export CSV files for a specified date range.
+
+## Technical Requirements
 -------------------------
 
-The following command-line arguments will be supported:
+### 1. Programming Language
 
-1. **`-i`**: specify the IP address or hostname to scan.
-2. **`-p`**: specify the range of ports to scan (e.g., 1-1024).
-3. **`-t`**: specify the timeout option (e.g., 5 seconds).
-4. **`-v`**: enable verbose mode.
+* **Python**: The application will be built using Python 3.9 or later.
 
-## Output Format
+### 2. Database
+
+* **SQLite**: The application will use SQLite as the database management system.
+
+### 3. Dependencies
+
+* **`sqlite3`**: For database interactions.
+* **`csv`**: For CSV export functionality.
+* **`getpass`**: For secure password input.
+* **`hashlib`**: For password hashing.
+
+### 4. Command-Line Interface
+
+* **`argparse`**: For building the command-line interface.
+* **`tabulate`**: For displaying reports in a human-readable format.
+
+## System Design
 ----------------
 
-The output will be in the following format:
+### 1. Database Schema
 
+The database schema will consist of the following tables:
+
+* **`users`**: Stores user information (username, password hash).
+* **`categories`**: Stores category information (category name, user ID).
+* **`expenses`**: Stores expense information (date, category ID, amount, description, user ID).
+
+### 2. Application Flow
+
+1. User authentication
+2. Category management
+3. Expense tracking
+4. Monthly report generation
+5. CSV export
+
+## Example Use Cases
+---------------------
+
+### 1. Creating a New Category
+
+```bash
+$ python budget_tracker.py category create "Housing"
 ```
-Port  | Status  | Response Time
-------|---------|---------------
-22    | Open    | 10ms
-23    | Closed  | N/A
-80    | Open    | 50ms
+
+### 2. Adding a New Expense
+
+```bash
+$ python budget_tracker.py expense add --date "2022-01-01" --category "Housing" --amount 1000 --description "Rent"
 ```
 
-## Error Handling
------------------
+### 3. Generating a Monthly Report
 
-The following error handling mechanisms will be implemented:
+```bash
+$ python budget_tracker.py report --month 1 --year 2022
+```
 
-1. **Invalid Input**: handle invalid input (e.g., invalid IP address or hostname, invalid port range).
-2. **Network Errors**: handle network errors (e.g., connection refused, timeout).
-3. **Internal Errors**: handle internal errors (e.g., unexpected exceptions).
+### 4. Exporting CSV Data
+
+```bash
+$ python budget_tracker.py export --start-date "2022-01-01" --end-date "2022-01-31"
+```
+
+## Development Roadmap
+----------------------
+
+1. Implement user authentication
+2. Develop category management functionality
+3. Create expense tracking features
+4. Generate monthly reports
+5. Implement CSV export functionality
+6. Test and refine the application
+
+## Conclusion
+----------
+
+The budget tracker CLI will provide a comprehensive and user-friendly solution for managing personal finances. By following the technical specification outlined above, the application will meet the core requirements and provide a robust and secure experience for users.

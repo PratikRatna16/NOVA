@@ -1,32 +1,54 @@
-### TCP Port Scanner CLI Audit Log
-#### Introduction
-The provided Python script is a TCP Port Scanner CLI tool designed to scan TCP ports on an authorized IP address or hostname. This audit log identifies potential bugs, security issues, and logic flaws in the script.
+# Budget Tracker CLI Audit Log
+## Introduction
+The provided Python script is a Budget Tracker CLI with SQLite storage and secure password hashing. This audit log identifies potential bugs, security issues, and logic flaws in the script.
 
-#### Bugs
-1. **Inconsistent Error Handling**: The script handles errors inconsistently. For example, in the `scan_port` function, it catches specific exceptions like `socket.timeout` and `ConnectionRefusedError`, but in the `main` function, it catches the general `Exception` class. It's better to handle specific exceptions and provide meaningful error messages.
-2. **Potential Resource Leak**: The `scan_port` function creates a socket object but does not ensure it's closed in all scenarios. Although the `finally` block attempts to close the socket, it's possible that an exception occurs when trying to close the socket, which could lead to a resource leak.
-3. **Inefficient Progress Reporting**: The `mark_complete` function in the `scan_ports` function uses a lock to update the progress. This can be inefficient if the number of ports being scanned is large. A more efficient approach would be to use a thread-safe queue to report progress.
+## Security Issues
+### 1. **Insecure Password Storage**
+The script uses PBKDF2-HMAC with SHA256 for password hashing, which is a secure approach. However, the salt is stored in plain text in the database. While this is not a significant security risk, it's worth considering using a more secure salt storage mechanism.
 
-#### Security Issues
-1. **Potential Denial of Service (DoS)**: The script does not validate the input ports range, which could lead to a Denial of Service (DoS) attack if a large range is provided. It's essential to validate the input ports range to prevent such attacks.
-2. **Insecure Socket Creation**: The script creates a socket using the `socket.socket` function without specifying the `SO_REUSEADDR` option. This can lead to issues if the script is run multiple times in quick succession, as the socket may not be immediately available for reuse.
-3. **Lack of Input Validation**: The script does not validate the input target IP address or hostname. This could lead to potential security issues if the input is not validated properly.
+### 2. **Lack of Input Validation**
+The script does not perform thorough input validation, which can lead to potential security vulnerabilities. For example, the `cmd_category_create` function does not check if the category name is too long, which could lead to a potential buffer overflow.
 
-#### Logic Flaws
-1. **Inconsistent Port Scanning**: The script scans ports using a bounded thread pool, but it does not ensure that the ports are scanned in the correct order. This can lead to inconsistent results if the ports are scanned out of order.
-2. **Inefficient Port Scanning**: The script scans each port individually, which can be inefficient if the number of ports being scanned is large. A more efficient approach would be to use a technique like parallel scanning or concurrent scanning.
-3. **Lack of Retries**: The script does not implement retries for failed port scans. This can lead to false negatives if the port scan fails due to a temporary issue.
+### 3. **Insecure Session Management**
+The script stores the user's session ID in a file, which is not secure. A more secure approach would be to use a secure cookie or token-based authentication system.
 
-#### Recommendations
-1. **Improve Error Handling**: Handle specific exceptions and provide meaningful error messages.
-2. **Ensure Resource Cleanup**: Ensure that all resources, including sockets, are properly closed in all scenarios.
-3. **Implement Efficient Progress Reporting**: Use a thread-safe queue to report progress instead of using a lock.
-4. **Validate Input Ports Range**: Validate the input ports range to prevent potential DoS attacks.
-5. **Specify SO_REUSEADDR Option**: Specify the `SO_REUSEADDR` option when creating a socket to prevent issues with socket reuse.
-6. **Validate Input Target**: Validate the input target IP address or hostname to prevent potential security issues.
-7. **Ensure Consistent Port Scanning**: Ensure that ports are scanned in the correct order to prevent inconsistent results.
-8. **Implement Efficient Port Scanning**: Use techniques like parallel scanning or concurrent scanning to improve the efficiency of port scanning.
-9. **Implement Retries**: Implement retries for failed port scans to prevent false negatives.
+## Bugs
+### 1. **Database Connection Issues**
+The script does not handle database connection issues properly. If the database connection fails, the script will raise a `SystemExit` exception, which is not a good practice.
 
-#### Conclusion
-The provided TCP Port Scanner CLI tool has several potential bugs, security issues, and logic flaws. By addressing these issues and implementing the recommended changes, the tool can be made more robust, efficient, and secure.
+### 2. **Category Deletion Issues**
+The `cmd_category_delete` function does not check if the category has any expenses associated with it before deleting it. This can lead to foreign key constraint errors.
+
+### 3. **Expense Deletion Issues**
+The `cmd_expense_delete` function does not check if the expense exists before deleting it. This can lead to a `SystemExit` exception.
+
+## Logic Flaws
+### 1. **Category Name Uniqueness**
+The script does not enforce category name uniqueness across all users. This can lead to confusion if multiple users have categories with the same name.
+
+### 2. **Expense Date Validation**
+The script does not validate the expense date to ensure it is within a valid range (e.g., not in the future).
+
+### 3. **Report Generation Issues**
+The `cmd_report` function does not handle cases where the user has no expenses in the specified month. This can lead to a `SystemExit` exception.
+
+## Code Quality Issues
+### 1. **Code Duplication**
+The script has some code duplication, particularly in the `cmd_category_create` and `cmd_category_edit` functions. This can make maintenance more difficult.
+
+### 2. **Function Length**
+Some functions, such as `cmd_category_create` and `cmd_expense_add`, are quite long and complex. This can make them harder to understand and maintain.
+
+### 3. **Error Handling**
+The script does not handle errors consistently. Some functions raise `SystemExit` exceptions, while others return error messages. A more consistent approach to error handling would improve the script's reliability.
+
+## Recommendations
+1. **Improve Input Validation**: Add thorough input validation to prevent security vulnerabilities and ensure data consistency.
+2. **Enhance Session Management**: Implement a more secure session management system, such as using secure cookies or token-based authentication.
+3. **Fix Database Connection Issues**: Improve database connection handling to prevent `SystemExit` exceptions.
+4. **Address Category Deletion Issues**: Modify the `cmd_category_delete` function to check for associated expenses before deleting a category.
+5. **Improve Code Quality**: Refactor the code to reduce duplication, improve function length, and implement consistent error handling.
+6. **Add Expense Date Validation**: Validate expense dates to ensure they are within a valid range.
+7. **Enhance Report Generation**: Modify the `cmd_report` function to handle cases where the user has no expenses in the specified month.
+
+By addressing these issues, the script can become more secure, reliable, and maintainable.

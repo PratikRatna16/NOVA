@@ -95,7 +95,11 @@ def researcher_node(state: NovaState) -> NovaState:
 def coder_node(state: NovaState) -> NovaState:
     print("\n💻 [CODER] Writing code...")
     messages = [
-        SystemMessage(content="You are a senior Python engineer. Write clean, well-commented, production-ready code only. Be concise — maximum 150 lines unless complexity genuinely demands more."),
+        SystemMessage(content="""You are a senior Python engineer. Rules:
+- Write ONLY the Python code, no explanations outside comments
+- Single file output only
+- No redundant abstractions — solve the problem directly
+- If a feature needs 50 lines, write 50. If it needs 200, write 200. Never pad."""),
         HumanMessage(content=(
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
             "Write a fully functional Python script with robust error handling."

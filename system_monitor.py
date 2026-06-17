@@ -1,537 +1,431 @@
-```python
 #!/usr/bin/env python3
-"""
-TCP Port Scanner CLI
-
-Performs TCP connect scans against an authorized target and reports open/closed
-status plus TCP handshake response time for open ports.
-
-Security note: only scan systems you own or have explicit permission to test.
-This tool does not send payloads, attempt authentication, or use stealth techniques.
-
-For hostnames that resolve to multiple addresses, verbose mode displays all
-resolved TCP addresses. The scanner uses the first IPv4 address if available;
-otherwise it uses the first resolved address. Pass an explicit IP address to
-control the exact target address.
-"""
-
-from __future__ import annotations
+"""Budget Tracker CLI with SQLite storage and secure password hashing."""
 
 import argparse
-import errno
-import math
+import csv
+import getpass
+import hashlib
 import os
-import socket
+import secrets
+import sqlite3
 import sys
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Tuple
+from datetime import datetime
+from pathlib import Path
 
-MIN_PORT = 1
-MAX_PORT = 65535
-MAX_WORKERS = 128
-
-# Some platforms do not define every errno constant.
-ECONNREFUSED = getattr(errno, "ECONNREFUSED", None)
+DB_PATH = Path(os.environ.get("BUDGET_DB", Path.home() / ".budget_tracker.db"))
+SESSION_PATH = Path(os.environ.get("BUDGET_SESSION", Path.home() / ".budget_tracker.session"))
 
 
-@dataclass(frozen=True)
-class ScanResult:
-    """Result for a single port scan attempt."""
-
-    port: int
-    status: str
-    response_ms: Optional[float]
-    detail: Optional[str] = None
-
-
-def parse_port_range(raw_range: str) -> List[int]:
-    """
-    Parse a port range expression.
-
-    Supported forms:
-      - "80"
-      - "80,443,8080"
-      - "1-1024"
-      - "22,80,443,8000-8010"
-
-    Raises:
-        ValueError: If the input is malformed or outside 1-65535.
-    """
-    if not raw_range or not raw_range.strip():
-        raise ValueError("Port range cannot be empty.")
-
-    ports: List[int] = []
-    tokens = [token.strip() for token in raw_range.split(",")]
-
-    if any(not token for token in tokens):
-        raise ValueError("Port range contains an empty entry; expected e.g. 1-1024 or 80,443.")
-
-    for token in tokens:
-        if "-" in token:
-            if token.count("-") != 1:
-                raise ValueError(
-                    "Invalid port range segment {!r}; expected a single start-end range.".format(token)
-                )
-
-            start_text, end_text = token.split("-", 1)
-
-            try:
-                start = int(start_text, 10)
-                end = int(end_text, 10)
-            except ValueError as exc:
-                raise ValueError("Invalid port range segment {!r}; ports must be integers.".format(token)) from exc
-
-            if start > end:
-                raise ValueError("Invalid port range segment {!r}; start port is greater than end port.".format(token))
-
-            if not (MIN_PORT <= start <= MAX_PORT and MIN_PORT <= end <= MAX_PORT):
-                raise ValueError("Invalid port range segment {!r}; ports must be between 1 and 65535.".format(token))
-
-            ports.extend(range(start, end + 1))
-        else:
-            try:
-                port = int(token, 10)
-            except ValueError as exc:
-                raise ValueError("Invalid port {!r}; ports must be integers.".format(token)) from exc
-
-            if not (MIN_PORT <= port <= MAX_PORT):
-                raise ValueError("Invalid port {!r}; ports must be between 1 and 65535.".format(port))
-
-            ports.append(port)
-
-    # Remove duplicates while keeping output predictable.
-    return sorted(set(ports))
+def connect() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    init_db(conn)
+    return conn
 
 
-def parse_timeout(value: str) -> float:
-    """Validate and parse timeout seconds."""
+def init_db(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, name),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            category_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            amount REAL NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE RESTRICT
+        );
+        """
+    )
+    conn.commit()
+
+
+def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
+    return digest.hex(), salt
+
+
+def get_current_user(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    if not SESSION_PATH.exists():
+        return None
     try:
-        timeout = float(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("timeout must be a positive number of seconds.") from exc
-
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise argparse.ArgumentTypeError("timeout must be a positive number of seconds.")
-
-    return timeout
+        user_id = int(SESSION_PATH.read_text().strip())
+    except ValueError:
+        return None
+    return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
 
 
-def parse_workers(value: str) -> int:
-    """Validate and parse worker count."""
+def require_user(conn: sqlite3.Connection) -> sqlite3.Row:
+    user = get_current_user(conn)
+    if not user:
+        raise SystemExit("Not logged in. Run: python budget_tracker.py auth login")
+    return user
+
+
+def prompt_password(prompt: str = "Password: ") -> str:
+    password = getpass.getpass(prompt)
+    if not password:
+        raise SystemExit("Password cannot be empty.")
+    return password
+
+
+def parse_date(value: str) -> str:
     try:
-        workers = int(value, 10)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("workers must be a positive integer.") from exc
-
-    if workers < 1:
-        raise argparse.ArgumentTypeError("workers must be a positive integer.")
-
-    return workers
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        raise SystemExit(f"Invalid date '{value}'. Use YYYY-MM-DD.")
 
 
-def normalize_target(target: str) -> str:
-    """Normalize user-provided target input."""
-    target = (target or "").strip()
-
-    # Allow bracketed IPv6 literals such as [::1].
-    if target.startswith("[") and target.endswith("]"):
-        target = target[1:-1].strip()
-
-    if not target:
-        raise ValueError("Target cannot be empty.")
-
-    return target
+def parse_amount(value: float) -> float:
+    if value <= 0:
+        raise SystemExit("Amount must be greater than zero.")
+    return round(value, 2)
 
 
-def resolve_tcp_addresses(target: str) -> List[Tuple[int, Tuple[Any, ...]]]:
-    """
-    Resolve a hostname or IP address to TCP-capable socket addresses.
+def get_category(conn: sqlite3.Connection, user_id: int, identifier: str) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT * FROM categories WHERE (id = ? OR name = ?) AND user_id = ?",
+        (identifier, identifier, user_id),
+    ).fetchone()
+    if not row:
+        raise SystemExit(f"Category not found: {identifier}")
+    return row
 
-    Returns:
-        A list of (address_family, sockaddr) tuples.
-    """
-    try:
-        infos = socket.getaddrinfo(
-            target,
-            None,
-            family=socket.AF_UNSPEC,
-            type=socket.SOCK_STREAM,
+
+def get_expense(conn: sqlite3.Connection, user_id: int, expense_id: int) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT * FROM expenses WHERE id = ? AND user_id = ?", (expense_id, user_id)
+    ).fetchone()
+    if not row:
+        raise SystemExit(f"Expense not found: {expense_id}")
+    return row
+
+
+def cmd_auth_register(args: argparse.Namespace) -> None:
+    with connect() as conn:
+        if conn.execute("SELECT 1 FROM users WHERE username = ?", (args.username,)).fetchone():
+            raise SystemExit(f"Username already exists: {args.username}")
+        password = args.password or prompt_password("New password: ")
+        password_hash, salt = hash_password(password)
+        conn.execute(
+            "INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)",
+            (args.username, password_hash, salt),
         )
-    except socket.gaierror as exc:
-        raise ValueError("Could not resolve target {!r}: {}".format(target, exc)) from exc
-    except OSError as exc:
-        raise ValueError("Could not resolve target {!r}: {}".format(target, exc)) from exc
-
-    addresses: List[Tuple[int, Tuple[Any, ...]]] = []
-    seen = set()
-
-    for family, socktype, _proto, _canonname, sockaddr in infos:
-        if int(socktype) != int(socket.SOCK_STREAM):
-            continue
-
-        key = (int(family), sockaddr)
-        if key in seen:
-            continue
-
-        seen.add(key)
-        addresses.append((int(family), sockaddr))
-
-    if not addresses:
-        raise ValueError("No TCP addresses found for target {!r}.".format(target))
-
-    return addresses
+        conn.commit()
+        print(f"User '{args.username}' created.")
 
 
-def select_scan_address(addresses: Sequence[Tuple[int, Tuple[Any, ...]]]) -> Tuple[int, Tuple[Any, ...]]:
-    """
-    Choose the address to scan.
-
-    Prefer IPv4 when a hostname resolves to both IPv4 and IPv6, because IPv4 is
-    commonly reachable in mixed environments. IPv6-only targets still work.
-    """
-    for family, sockaddr in addresses:
-        if family == socket.AF_INET:
-            return family, sockaddr
-
-    return addresses[0]
-
-
-def format_address(family: int, sockaddr: Sequence[Any]) -> str:
-    """Format a socket address for display."""
-    if len(sockaddr) < 2:
-        return str(sockaddr)
-
-    host = str(sockaddr[0])
-    port = int(sockaddr[1])
-
-    if family == socket.AF_INET6:
-        return "[{}]:{}".format(host, port)
-
-    return "{}:{}".format(host, port)
+def cmd_auth_login(args: argparse.Namespace) -> None:
+    with connect() as conn:
+        username = args.username or input("Username: ").strip()
+        password = args.password or prompt_password()
+        user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if not user:
+            raise SystemExit("Invalid username or password.")
+        password_hash, _ = hash_password(password, user["salt"])
+        if not secrets.compare_digest(password_hash, user["password_hash"]):
+            raise SystemExit("Invalid username or password.")
+        SESSION_PATH.write_text(str(user["id"]))
+        SESSION_PATH.chmod(0o600)
+        print(f"Logged in as {username}.")
 
 
-def sockaddr_with_port(sockaddr: Sequence[Any], port: int) -> Tuple[Any, ...]:
-    """
-    Add a scan port to a sockaddr returned by getaddrinfo.
-
-    getaddrinfo is called with service=None, so the original sockaddr has port 0.
-    """
-    if len(sockaddr) == 2:
-        return (sockaddr[0], port)
-
-    if len(sockaddr) == 4:
-        return (sockaddr[0], port, sockaddr[2], sockaddr[3])
-
-    raise ValueError("Unsupported socket address format: {!r}".format(sockaddr))
+def cmd_auth_logout(_: argparse.Namespace) -> None:
+    if SESSION_PATH.exists():
+        SESSION_PATH.unlink()
+    print("Logged out.")
 
 
-def default_worker_count() -> int:
-    """Return a safe automatic worker count."""
-    cpu_count = os.cpu_count() or 2
-    return min(MAX_WORKERS, max(1, cpu_count * 4))
+def cmd_auth_whoami(_: argparse.Namespace) -> None:
+    with connect() as conn:
+        user = get_current_user(conn)
+        print(user["username"] if user else "Not logged in")
 
 
-def effective_worker_count(requested: Optional[int], total_ports: int) -> int:
-    """Resolve requested worker count with a safe upper bound."""
-    workers = requested if requested is not None else default_worker_count()
-    return min(workers, MAX_WORKERS, max(1, total_ports))
-
-
-def scan_port(
-    family: int,
-    base_sockaddr: Sequence[Any],
-    port: int,
-    timeout: float,
-) -> ScanResult:
-    """
-    Scan a single TCP port.
-
-    Response time is measured as the time required to complete the TCP handshake.
-    Closed and filtered ports report N/A for response time.
-    """
-    start = time.perf_counter()
-    sock: Optional[socket.socket] = None
-
-    try:
-        sock = socket.socket(family, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect(sockaddr_with_port(base_sockaddr, port))
-
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-        return ScanResult(port=port, status="Open", response_ms=elapsed_ms)
-
-    except socket.timeout as exc:
-        return ScanResult(
-            port=port,
-            status="Filtered",
-            response_ms=None,
-            detail=str(exc) or "timeout",
-        )
-
-    except ConnectionRefusedError as exc:
-        return ScanResult(
-            port=port,
-            status="Closed",
-            response_ms=None,
-            detail=str(exc) or "connection refused",
-        )
-
-    except OSError as exc:
-        code = getattr(exc, "errno", None)
-        status = "Closed" if code == ECONNREFUSED else "Filtered"
-        message = exc.strerror or exc.__class__.__name__
-
-        if code is not None:
-            message = "{} (errno {})".format(message, code)
-
-        return ScanResult(
-            port=port,
-            status=status,
-            response_ms=None,
-            detail=message,
-        )
-
-    finally:
-        if sock is not None:
-            try:
-                sock.close()
-            except OSError:
-                # Socket close failure should not mask the scan result.
-                pass
-
-
-def scan_ports(
-    address: Tuple[int, Sequence[Any]],
-    ports: Sequence[int],
-    timeout: float,
-    workers: Optional[int],
-    verbose: bool,
-) -> List[ScanResult]:
-    """Scan all requested ports using a bounded thread pool."""
-    total_ports = len(ports)
-    if total_ports == 0:
-        return []
-
-    family, base_sockaddr = address
-    max_workers = effective_worker_count(workers, total_ports)
-
-    results: List[ScanResult] = []
-    completed = 0
-    lock = threading.Lock()
-    progress_interval = max(1, total_ports // 10)
-
-    def mark_complete() -> None:
-        nonlocal completed
-
-        with lock:
-            completed += 1
-
-            if verbose and (completed == total_ports or completed % progress_interval == 0):
-                percent = completed / total_ports * 100
-                print(
-                    "\rScanned {}/{} ports ({:.1f}%)".format(completed, total_ports, percent),
-                    end="",
-                    flush=True,
-                )
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_port = {
-            executor.submit(scan_port, family, base_sockaddr, port, timeout): port
-            for port in ports
-        }
-
-        for future in as_completed(future_to_port):
-            port = future_to_port[future]
-
-            try:
-                result = future.result()
-            except Exception as exc:
-                result = ScanResult(
-                    port=port,
-                    status="Error",
-                    response_ms=None,
-                    detail=str(exc),
-                )
-
-            results.append(result)
-            mark_complete()
-
-    if verbose:
-        print()
-
-    return sorted(results, key=lambda item: item.port)
-
-
-def format_response_time(response_ms: Optional[float]) -> str:
-    """Format response time for table output."""
-    if response_ms is None:
-        return "N/A"
-
-    if response_ms < 10:
-        return "{:.2f}ms".format(response_ms)
-
-    if response_ms < 100:
-        return "{:.1f}ms".format(response_ms)
-
-    return "{:.0f}ms".format(response_ms)
-
-
-def print_results(results: Sequence[ScanResult]) -> None:
-    """Print scan results in the requested table format."""
-    if not results:
-        print("No ports were scanned.")
-        return
-
-    print()
-    print(f"{'Port':<5} | {'Status':<8} | Response Time")
-    print(f"{'-' * 5}-|{'-' * 8}-|{'-' * 13}")
-
-    for result in results:
-        print(
-            "{:<5} | {:<8} | {:>13}".format(
-                result.port,
-                result.status,
-                format_response_time(result.response_ms),
+def cmd_category_create(args: argparse.Namespace) -> None:
+    name = args.name.strip()
+    if not name:
+        raise SystemExit("Category name cannot be empty.")
+    with connect() as conn:
+        user = require_user(conn)
+        try:
+            conn.execute(
+                "INSERT INTO categories (name, user_id) VALUES (?, ?)",
+                (name, user["id"]),
             )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            raise SystemExit(f"Category already exists: {name}")
+        print(f"Category created: {name}")
+
+
+def cmd_category_list(_: argparse.Namespace) -> None:
+    with connect() as conn:
+        user = require_user(conn)
+        rows = conn.execute(
+            "SELECT id, name FROM categories WHERE user_id = ? ORDER BY name", (user["id"],)
+        ).fetchall()
+        if not rows:
+            print("No categories.")
+            return
+        print("\n".join(f"{r['id']}. {r['name']}" for r in rows))
+
+
+def cmd_category_delete(args: argparse.Namespace) -> None:
+    with connect() as conn:
+        user = require_user(conn)
+        category = get_category(conn, user["id"], args.identifier)
+        count = conn.execute("SELECT COUNT(*) FROM expenses WHERE category_id = ?", (category["id"],)).fetchone()[0]
+        if count:
+            raise SystemExit("Cannot delete category with expenses. Delete or move those expenses first.")
+        conn.execute("DELETE FROM categories WHERE id = ? AND user_id = ?", (category["id"], user["id"]))
+        conn.commit()
+        print(f"Category deleted: {category['name']}")
+
+
+def cmd_category_edit(args: argparse.Namespace) -> None:
+    new_name = args.name.strip()
+    if not new_name:
+        raise SystemExit("Category name cannot be empty.")
+    with connect() as conn:
+        user = require_user(conn)
+        category = get_category(conn, user["id"], args.identifier)
+        try:
+            conn.execute(
+                "UPDATE categories SET name = ? WHERE id = ? AND user_id = ?",
+                (new_name, category["id"], user["id"]),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            raise SystemExit(f"Category already exists: {new_name}")
+        print(f"Category renamed to: {new_name}")
+
+
+def cmd_expense_add(args: argparse.Namespace) -> None:
+    date = parse_date(args.date)
+    amount = parse_amount(args.amount)
+    description = (args.description or "").strip()
+    with connect() as conn:
+        user = require_user(conn)
+        category = get_category(conn, user["id"], args.category)
+        conn.execute(
+            "INSERT INTO expenses (user_id, category_id, date, amount, description) VALUES (?, ?, ?, ?, ?)",
+            (user["id"], category["id"], date, amount, description),
         )
+        conn.commit()
+        print("Expense added.")
 
 
-def print_summary(results: Sequence[ScanResult]) -> None:
-    """Print a concise status summary."""
-    counts = {"Open": 0, "Closed": 0, "Filtered": 0, "Error": 0}
+def cmd_expense_list(_: argparse.Namespace) -> None:
+    with connect() as conn:
+        user = require_user(conn)
+        rows = conn.execute(
+            """
+            SELECT e.id, e.date, c.name AS category, e.amount, e.description
+            FROM expenses e JOIN categories c ON e.category_id = c.id
+            WHERE e.user_id = ?
+            ORDER BY e.date DESC, e.id DESC
+            """,
+            (user["id"],),
+        ).fetchall()
+        if not rows:
+            print("No expenses.")
+            return
+        print(f"{'ID':<5} {'Date':<12} {'Category':<18} {'Amount':>10} Description")
+        for r in rows:
+            print(f"{r['id']:<5} {r['date']:<12} {r['category']:<18} {r['amount']:>10.2f} {r['description']}")
 
-    for result in results:
-        counts[result.status] = counts.get(result.status, 0) + 1
 
-    print()
-    print(
-        "Summary: {} open, {} closed, {} filtered/timeout".format(
-            counts.get("Open", 0),
-            counts.get("Closed", 0),
-            counts.get("Filtered", 0),
+def cmd_expense_delete(args: argparse.Namespace) -> None:
+    with connect() as conn:
+        user = require_user(conn)
+        expense = get_expense(conn, user["id"], args.id)
+        conn.execute("DELETE FROM expenses WHERE id = ? AND user_id = ?", (expense["id"], user["id"]))
+        conn.commit()
+        print("Expense deleted.")
+
+
+def cmd_expense_edit(args: argparse.Namespace) -> None:
+    with connect() as conn:
+        user = require_user(conn)
+        expense = get_expense(conn, user["id"], args.id)
+        date = parse_date(args.date) if args.date else expense["date"]
+        amount = parse_amount(args.amount) if args.amount is not None else expense["amount"]
+        category = get_category(conn, user["id"], args.category).id if args.category else expense["category_id"]
+        description = args.description if args.description is not None else expense["description"]
+        conn.execute(
+            """
+            UPDATE expenses
+            SET date = ?, category_id = ?, amount = ?, description = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (date, category, amount, description, expense["id"], user["id"]),
         )
-    )
-
-    if counts.get("Error", 0):
-        print("         {} error(s)".format(counts["Error"]))
-
-    if results and counts.get("Open", 0) == 0:
-        print("No open ports found.")
+        conn.commit()
+        print("Expense updated.")
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser."""
-    parser = argparse.ArgumentParser(
-        description="Scan TCP ports on an authorized IP address or hostname.",
-        epilog="Only scan systems you own or have explicit permission to test. This tool performs TCP connect scans.",
-    )
+def cmd_report(args: argparse.Namespace) -> None:
+    if not 1 <= args.month <= 12:
+        raise SystemExit("Month must be between 1 and 12.")
+    start = f"{args.year:04d}-{args.month:02d}-01"
+    if args.month == 12:
+        end = f"{args.year + 1:04d}-01-01"
+    else:
+        end = f"{args.year:04d}-{args.month + 1:02d}-01"
+    with connect() as conn:
+        user = require_user(conn)
+        rows = conn.execute(
+            """
+            SELECT c.name AS category, COALESCE(SUM(e.amount), 0) AS total
+            FROM categories c
+            LEFT JOIN expenses e ON e.category_id = c.id AND e.user_id = c.user_id
+                AND e.date >= ? AND e.date < ?
+            WHERE c.user_id = ?
+            GROUP BY c.id, c.name
+            ORDER BY total DESC, c.name
+            """,
+            (start, end, user["id"]),
+        ).fetchall()
+        grand_total = sum(float(r["total"]) for r in rows)
+        print(f"Monthly Report: {args.month:02d}/{args.year}")
+        print(f"{'Category':<20} {'Total':>12} {'Share':>10}")
+        print("-" * 44)
+        for r in rows:
+            share = (float(r["total"]) / grand_total * 100) if grand_total else 0.0
+            print(f"{r['category']:<20} {float(r['total']):>12.2f} {share:>9.1f}%")
+        print("-" * 44)
+        print(f"{'Total':<20} {grand_total:>12.2f}")
 
-    parser.add_argument(
-        "-i",
-        "--target",
-        required=True,
-        metavar="HOST",
-        help="IP address or hostname to scan.",
-    )
 
-    parser.add_argument(
-        "-p",
-        "--ports",
-        required=True,
-        metavar="RANGE",
-        help="Port range to scan, e.g. 1-1024 or 80,443,8000-8010.",
-    )
+def cmd_export(args: argparse.Namespace) -> None:
+    start = parse_date(args.start_date)
+    end = parse_date(args.end_date)
+    if start > end:
+        raise SystemExit("Start date must be on or before end date.")
+    output = Path(args.output)
+    with connect() as conn:
+        user = require_user(conn)
+        rows = conn.execute(
+            """
+            SELECT e.date, c.name AS category, e.amount, e.description
+            FROM expenses e JOIN categories c ON e.category_id = c.id
+            WHERE e.user_id = ? AND e.date >= ? AND e.date <= ?
+            ORDER BY e.date, e.id
+            """,
+            (user["id"], start, end),
+        ).fetchall()
+        with output.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["date", "category", "amount", "description"])
+            writer.writeheader()
+            for r in rows:
+                writer.writerow(dict(r))
+        print(f"Exported {len(rows)} expense(s) to {output}")
 
-    parser.add_argument(
-        "-t",
-        "--timeout",
-        type=parse_timeout,
-        default=1.0,
-        metavar="SECONDS",
-        help="Maximum seconds to wait for a TCP connection. Default: 1.0.",
-    )
 
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Show scan progress, resolved addresses, and configuration.",
-    )
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Track expenses by category.")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    parser.add_argument(
-        "--workers",
-        type=parse_workers,
-        default=None,
-        metavar="N",
-        help="Concurrent port checks. Default: auto, capped at {}.".format(MAX_WORKERS),
-    )
+    auth = sub.add_parser("auth")
+    auth_sub = auth.add_subparsers(dest="auth_command", required=True)
+    p = auth_sub.add_parser("register")
+    p.add_argument("--username", required=True)
+    p.add_argument("--password")
+    p.set_defaults(func=cmd_auth_register)
 
+    p = auth_sub.add_parser("login")
+    p.add_argument("--username")
+    p.add_argument("--password")
+    p.set_defaults(func=cmd_auth_login)
+
+    auth_sub.add_parser("logout").set_defaults(func=cmd_auth_logout)
+    auth_sub.add_parser("whoami").set_defaults(func=cmd_auth_whoami)
+
+    cat = sub.add_parser("category")
+    cat_sub = cat.add_subparsers(dest="category_command", required=True)
+    p = cat_sub.add_parser("create")
+    p.add_argument("name")
+    p.set_defaults(func=cmd_category_create)
+
+    cat_sub.add_parser("list").set_defaults(func=cmd_category_list)
+
+    p = cat_sub.add_parser("delete")
+    p.add_argument("identifier")
+    p.set_defaults(func=cmd_category_delete)
+
+    p = cat_sub.add_parser("edit")
+    p.add_argument("identifier")
+    p.add_argument("--name", required=True)
+    p.set_defaults(func=cmd_category_edit)
+
+    exp = sub.add_parser("expense")
+    exp_sub = exp.add_subparsers(dest="expense_command", required=True)
+    p = exp_sub.add_parser("add")
+    p.add_argument("--date", required=True)
+    p.add_argument("--category", required=True)
+    p.add_argument("--amount", type=float, required=True)
+    p.add_argument("--description", default="")
+    p.set_defaults(func=cmd_expense_add)
+
+    exp_sub.add_parser("list").set_defaults(func=cmd_expense_list)
+
+    p = exp_sub.add_parser("delete")
+    p.add_argument("id", type=int)
+    p.set_defaults(func=cmd_expense_delete)
+
+    p = exp_sub.add_parser("edit")
+    p.add_argument("id", type=int)
+    p.add_argument("--date")
+    p.add_argument("--category")
+    p.add_argument("--amount", type=float)
+    p.add_argument("--description")
+    p.set_defaults(func=cmd_expense_edit)
+
+    p = sub.add_parser("report")
+    p.add_argument("--month", type=int, required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("export")
+    p.add_argument("--start-date", required=True)
+    p.add_argument("--end-date", required=True)
+    p.add_argument("--output", default="expenses.csv")
+    p.set_defaults(func=cmd_export)
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    """CLI entry point."""
-    parser = build_arg_parser()
-    args = parser.parse_args(argv)
-
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
     try:
-        target = normalize_target(args.target)
-        ports = parse_port_range(args.ports)
-        addresses = resolve_tcp_addresses(target)
-    except ValueError as exc:
-        parser.error(str(exc))
-        return 2
-    except Exception as exc:
-        print("Unexpected error while preparing scan: {}".format(exc), file=sys.stderr)
-        return 1
-
-    family, base_sockaddr = select_scan_address(addresses)
-    effective_workers = effective_worker_count(args.workers, len(ports))
-
-    if args.verbose:
-        print("TCP Port Scanner")
-        print("Target: {}".format(target))
-        print("Resolved TCP addresses:")
-        for address_family, sockaddr in addresses:
-            print("  - {}".format(format_address(address_family, sockaddr)))
-        print("Using address: {}".format(format_address(family, base_sockaddr)))
-        print("Ports to scan: {}".format(len(ports)))
-        print("Timeout: {}s".format(args.timeout))
-        print("Workers: {}".format(effective_workers))
-        print()
-
-    try:
-        results = scan_ports(
-            address=(family, base_sockaddr),
-            ports=ports,
-            timeout=args.timeout,
-            workers=effective_workers,
-            verbose=args.verbose,
-        )
-    except KeyboardInterrupt:
-        print("\nScan interrupted by user.", file=sys.stderr)
-        return 130
-    except Exception as exc:
-        print("Unexpected error during scan: {}".format(exc), file=sys.stderr)
-        return 1
-
-    try:
-        print_results(results)
-        print_summary(results)
-    except BrokenPipeError:
-        # Common when piping output to tools like `head`.
-        try:
-            sys.stdout.close()
-        except OSError:
-            pass
-        return 1
-
-    return 0
+        args.func(args)
+    except sqlite3.Error as exc:
+        raise SystemExit(f"Database error: {exc}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
-```
+    main()
+
