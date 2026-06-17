@@ -1,14 +1,14 @@
+
 import os
+import ast
+import time
 from dotenv import load_dotenv
 from typing import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
-from huggingface_hub import InferenceClient
 from langgraph.graph import StateGraph, END
-
-import time
 
 load_dotenv()
 
@@ -19,6 +19,35 @@ class NovaState(TypedDict):
     code: str
     audit: str
 
+# ── VALIDATION ───────────────────────────────────────
+def validate_code(code: str) -> tuple[bool, str]:
+    code = code.strip()
+    if code.startswith("```"):
+        code = code.split("\n", 1)[1]
+    if code.endswith("```"):
+        code = code.rsplit("\n", 1)[0]
+    try:
+        ast.parse(code)
+        return True, code
+    except SyntaxError as e:
+        return False, f"Syntax error: {e}"
+
+# ── COMPLEXITY ───────────────────────────────────────
+def estimate_complexity(topic: str) -> str:
+    word_count = len(topic.split())
+    complex_keywords = ["database", "auth", "api", "multi", "server", "sqlite", "encryption"]
+    if word_count > 15 or any(k in topic.lower() for k in complex_keywords):
+        return "complex"
+    elif word_count > 8:
+        return "medium"
+    return "simple"
+
+COMPLEXITY_BUDGET = {
+    "simple": "Keep this under 100 lines. This is a small utility script.",
+    "medium": "Keep this under 250 lines. Moderate complexity is expected.",
+    "complex": "Use as many lines as genuinely needed for correctness, but avoid padding."
+}
+
 # ── LLMs ─────────────────────────────────────────────
 gemini_llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash",
@@ -28,14 +57,6 @@ groq_llm = ChatGroq(
     model="llama-3.3-70b-versatile",
     api_key=os.environ.get("GROQ_API_KEY")
 )
-CODER_MODELS = [
-    "nex-agi/nex-n2-pro:free",
-    "deepseek/deepseek-r1-0528:free",
-    "poolside/laguna-m.1:free",
-    "nvidia/nemotron-3-super-super-120b-a12b:free",
-    "google/gemma-4-31b-it:free",
-]
-hf_client = InferenceClient(token=os.environ.get("HF_TOKEN"))
 
 def get_openrouter_llm(model_id):
     return ChatOpenAI(
@@ -43,6 +64,12 @@ def get_openrouter_llm(model_id):
         api_key=os.environ.get("OPENROUTER_API_KEY"),
         base_url="https://openrouter.ai/api/v1"
     )
+
+CODER_MODELS = [
+    "poolside/laguna-m.1:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+]
 
 # ── HELPERS ───────────────────────────────────────────
 def call_with_fallback(primary, fallback, messages):
@@ -52,9 +79,6 @@ def call_with_fallback(primary, fallback, messages):
         print(f"⚠ Primary failed: {e} → switching to fallback")
         return fallback.invoke(messages).content
 
-def call_hf_reviewer(prompt):
-    return groq_llm.invoke([HumanMessage(content=prompt)]).content
-
 def call_coder(messages):
     for model_id in CODER_MODELS:
         try:
@@ -62,12 +86,9 @@ def call_coder(messages):
             start = time.time()
             response = get_openrouter_llm(model_id).invoke(messages)
             elapsed = time.time() - start
-            
-            # token usage
             usage = response.response_metadata.get("token_usage", {})
             input_tokens = usage.get("prompt_tokens", "?")
             output_tokens = usage.get("completion_tokens", "?")
-            
             print(f"✅ Model: {model_id}")
             print(f"⏱ Time: {elapsed:.2f}s")
             print(f"🪙 Tokens — Input: {input_tokens} | Output: {output_tokens}")
@@ -76,6 +97,10 @@ def call_coder(messages):
             print(f"⚠ {model_id} failed: {e} → trying next")
     print("⚠ All OpenRouter models failed → falling back to Groq")
     return groq_llm.invoke(messages).content
+
+def call_hf_reviewer(prompt):
+    return groq_llm.invoke([HumanMessage(content=prompt)]).content
+
 # ── NODES ─────────────────────────────────────────────
 def researcher_node(state: NovaState) -> NovaState:
     print("\n🔬 [RESEARCHER] Building blueprint...")
@@ -86,7 +111,7 @@ def researcher_node(state: NovaState) -> NovaState:
             "Produce a comprehensive Markdown technical specification."
         ))
     ]
-    blueprint = call_with_fallback(groq_llm, get_openrouter_llm("deepseek/deepseek-r1-0528:free"), messages)
+    blueprint = call_with_fallback(groq_llm, get_openrouter_llm("google/gemma-4-31b-it:free"), messages)
     with open("system_blueprint.md", "w") as f:
         f.write(blueprint)
     print("✅ Blueprint written.")
@@ -94,22 +119,56 @@ def researcher_node(state: NovaState) -> NovaState:
 
 def coder_node(state: NovaState) -> NovaState:
     print("\n💻 [CODER] Writing code...")
+    complexity = estimate_complexity(state['topic'])
+    budget_instruction = COMPLEXITY_BUDGET[complexity]
+
     messages = [
-        SystemMessage(content="""You are a senior Python engineer. Rules:
-- Write ONLY the Python code, no explanations outside comments
-- Single file output only
-- No redundant abstractions — solve the problem directly
-- If a feature needs 50 lines, write 50. If it needs 200, write 200. Never pad."""),
+        SystemMessage(content=f"""You are a senior Python engineer. Output rules:
+- Return ONLY raw Python code. No markdown, no explanation, no preamble.
+- {budget_instruction}
+- No empty functions, unused imports, or redundant abstractions.
+- Use modern Python idioms: comprehensions, walrus operator, ternary where readable.
+- Inline validation at point of use.
+- Map commands/routes via dict dispatch, not if/else chains.
+- Comments only where logic is non-obvious."""),
         HumanMessage(content=(
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
             "Write a fully functional Python script with robust error handling."
         ))
     ]
     code = call_coder(messages)
-    with open("system_monitor.py", "w") as f:
-        f.write(code)
-    print("✅ Code written.")
+    print(f"DEBUG: code length = {len(code)} chars")
     return {**state, "code": code}
+
+def debug_node(state: NovaState) -> NovaState:
+    print("\n🔧 [DEBUGGER] Validating and fixing code...")
+    is_valid, result = validate_code(state['code'])
+
+    if is_valid:
+        print("✅ Code is syntactically valid.")
+        with open("system_monitor.py", "w") as f:
+            f.write(result)
+        return {**state, "code": result}
+
+    print(f"⚠ Syntax error found: {result}")
+    nex_llm = get_openrouter_llm("nex-agi/nex-n2-pro:free")
+    messages = [
+        SystemMessage(content="You are a debugging specialist. Fix the syntax error in this code. Return ONLY the corrected raw Python code, no markdown, no explanation."),
+        HumanMessage(content=f"Code:\n{state['code']}\n\nError:\n{result}")
+    ]
+    try:
+        fixed = nex_llm.invoke(messages).content
+        still_valid, final_code = validate_code(fixed)
+        if still_valid:
+            print("✅ Fix successful, code is now valid.")
+        else:
+            print(f"⚠ Fix attempt still broken: {final_code}")
+        with open("system_monitor.py", "w") as f:
+            f.write(final_code)
+        return {**state, "code": final_code}
+    except Exception as e:
+        print(f"⚠ Debug fix failed: {e}")
+        return state
 
 def reviewer_node(state: NovaState) -> NovaState:
     print("\n🔍 [REVIEWER] Auditing code...")
@@ -128,10 +187,12 @@ def build_graph():
     graph = StateGraph(NovaState)
     graph.add_node("researcher", researcher_node)
     graph.add_node("coder", coder_node)
+    graph.add_node("debugger", debug_node)
     graph.add_node("reviewer", reviewer_node)
     graph.set_entry_point("researcher")
     graph.add_edge("researcher", "coder")
-    graph.add_edge("coder", "reviewer")
+    graph.add_edge("coder", "debugger")
+    graph.add_edge("debugger", "reviewer")
     graph.add_edge("reviewer", END)
     return graph.compile()
 

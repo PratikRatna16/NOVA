@@ -1,125 +1,117 @@
-# Budget Tracker CLI Technical Specification
-==============================================
+# Loan EMI Calculator CLI Tool Technical Specification
+=====================================================
 
 ## Overview
 -----------
 
-The budget tracker CLI is a command-line application designed to help users manage their finances by tracking expenses across various categories. The application will provide features such as categorization, monthly reports, and CSV exports.
+The Loan EMI Calculator CLI tool is designed to calculate the Equated Monthly Installment (EMI) for a loan based on the principal amount, interest rate, and tenure. The tool will also generate an amortization schedule printout.
 
-## Core Requirements
---------------------
+## Requirements
+------------
 
-### 1. User Authentication
+### Functional Requirements
 
-* **Username and Password**: Users will be required to create a username and password to access the application.
-* **Password Hashing**: Passwords will be stored securely using a hashing algorithm (e.g., bcrypt).
+1. **User Input**: The tool shall accept the following user inputs:
+	* Principal amount (numeric value)
+	* Interest rate (numeric value in percentage)
+	* Tenure (numeric value in months or years)
+2. **EMI Calculation**: The tool shall calculate the EMI using the formula:
+	* EMI = (P x R x (1 + R)^N) / ((1 + R)^N - 1)
+	* Where:
+		+ P = Principal amount
+		+ R = Monthly interest rate (annual interest rate / 12)
+		+ N = Number of installments (tenure in months)
+3. **Amortization Schedule**: The tool shall generate an amortization schedule printout, including:
+	* Month/Year
+	* Payment (EMI)
+	* Interest Paid
+	* Principal Paid
+	* Outstanding Balance
+4. **Error Handling**: The tool shall handle the following errors:
+	* Invalid user input (non-numeric values, negative values, etc.)
+	* Division by zero errors
 
-### 2. Category Management
+### Non-Functional Requirements
 
-* **Category Creation**: Users will be able to create custom categories (e.g., housing, food, transportation).
-* **Category Deletion**: Users will be able to delete existing categories.
-* **Category Editing**: Users will be able to edit category names.
+1. **Performance**: The tool shall respond to user input within 1 second.
+2. **Security**: The tool shall not store any user input data.
+3. **Usability**: The tool shall provide a user-friendly interface with clear instructions and feedback.
 
-### 3. Expense Tracking
+## Design
+--------
 
-* **Expense Addition**: Users will be able to add new expenses with the following details:
-	+ Date
-	+ Category
-	+ Amount
-	+ Description
-* **Expense Deletion**: Users will be able to delete existing expenses.
-* **Expense Editing**: Users will be able to edit existing expenses.
+### Architecture
 
-### 4. Monthly Reports
+The tool shall be built using a command-line interface (CLI) architecture, with the following components:
 
-* **Report Generation**: The application will generate monthly reports summarizing expenses by category.
-* **Report Display**: Reports will be displayed in a human-readable format.
+1. **Input Handler**: Responsible for handling user input and validating data.
+2. **EMI Calculator**: Responsible for calculating the EMI using the formula.
+3. **Amortization Schedule Generator**: Responsible for generating the amortization schedule printout.
+4. **Error Handler**: Responsible for handling errors and providing feedback to the user.
 
-### 5. CSV Exports
+### Data Storage
 
-* **CSV Generation**: The application will generate CSV files containing expense data.
-* **CSV Export**: Users will be able to export CSV files for a specified date range.
+The tool shall not store any user input data. All calculations shall be performed in memory.
 
-## Technical Requirements
--------------------------
+## Implementation
+--------------
 
-### 1. Programming Language
+### Programming Language
 
-* **Python**: The application will be built using Python 3.9 or later.
+The tool shall be implemented in Python 3.x, using the following libraries:
 
-### 2. Database
+1. **`argparse`**: For handling user input and providing a CLI interface.
+2. **`tabulate`**: For generating the amortization schedule printout in a tabular format.
 
-* **SQLite**: The application will use SQLite as the database management system.
+### Code Structure
 
-### 3. Dependencies
+The tool shall consist of the following modules:
 
-* **`sqlite3`**: For database interactions.
-* **`csv`**: For CSV export functionality.
-* **`getpass`**: For secure password input.
-* **`hashlib`**: For password hashing.
+1. **`main.py`**: The entry point of the tool, responsible for handling user input and invoking the EMI calculator and amortization schedule generator.
+2. **`emi_calculator.py`**: Responsible for calculating the EMI using the formula.
+3. **`amortization_schedule.py`**: Responsible for generating the amortization schedule printout.
+4. **`error_handler.py`**: Responsible for handling errors and providing feedback to the user.
 
-### 4. Command-Line Interface
+## Testing
+-------
 
-* **`argparse`**: For building the command-line interface.
-* **`tabulate`**: For displaying reports in a human-readable format.
+### Unit Tests
 
-## System Design
-----------------
+The tool shall include unit tests for the following components:
 
-### 1. Database Schema
+1. **EMI Calculator**: To verify that the EMI calculation is accurate.
+2. **Amortization Schedule Generator**: To verify that the amortization schedule printout is correct.
 
-The database schema will consist of the following tables:
+### Integration Tests
 
-* **`users`**: Stores user information (username, password hash).
-* **`categories`**: Stores category information (category name, user ID).
-* **`expenses`**: Stores expense information (date, category ID, amount, description, user ID).
+The tool shall include integration tests to verify that the entire system works as expected, including:
 
-### 2. Application Flow
+1. **User Input Handling**: To verify that the tool handles user input correctly.
+2. **Error Handling**: To verify that the tool handles errors correctly.
 
-1. User authentication
-2. Category management
-3. Expense tracking
-4. Monthly report generation
-5. CSV export
+## Deployment
+---------
 
-## Example Use Cases
----------------------
+### Packaging
 
-### 1. Creating a New Category
+The tool shall be packaged as a Python package, using the following tools:
 
+1. **`setuptools`**: For building and distributing the package.
+2. **`pip`**: For installing the package.
+
+### Installation
+
+The tool shall be installed using the following command:
 ```bash
-$ python budget_tracker.py category create "Housing"
+pip install loan-emi-calculator
 ```
+### Usage
 
-### 2. Adding a New Expense
-
+The tool shall be used by running the following command:
 ```bash
-$ python budget_tracker.py expense add --date "2022-01-01" --category "Housing" --amount 1000 --description "Rent"
+loan-emi-calculator --principal <amount> --interest-rate <rate> --tenure <months/years>
 ```
-
-### 3. Generating a Monthly Report
-
+Example:
 ```bash
-$ python budget_tracker.py report --month 1 --year 2022
+loan-emi-calculator --principal 100000 --interest-rate 10 --tenure 12
 ```
-
-### 4. Exporting CSV Data
-
-```bash
-$ python budget_tracker.py export --start-date "2022-01-01" --end-date "2022-01-31"
-```
-
-## Development Roadmap
-----------------------
-
-1. Implement user authentication
-2. Develop category management functionality
-3. Create expense tracking features
-4. Generate monthly reports
-5. Implement CSV export functionality
-6. Test and refine the application
-
-## Conclusion
-----------
-
-The budget tracker CLI will provide a comprehensive and user-friendly solution for managing personal finances. By following the technical specification outlined above, the application will meet the core requirements and provide a robust and secure experience for users.
