@@ -1,93 +1,97 @@
 #!/usr/bin/env python3
+"""QR Code Generator CLI Tool"""
+
 import argparse
 import sys
-import pandas as pd
-import numpy as np
-from tabulate import tabulate
+from pathlib import Path
 
-def parse_csv_file(file_path):
-    try:
-        df = pd.read_csv(file_path)
-        return df
-    except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.", file=sys.stderr)
-    except pd.errors.EmptyDataError:
-        print(f"Error: File '{file_path}' is empty.", file=sys.stderr)
-    except pd.errors.ParserError as e:
-        print(f"Error parsing CSV file '{file_path}': {e}", file=sys.stderr)
-    except Exception as e:
-        print(f"Error reading file '{file_path}': {e}", file=sys.stderr)
-    return None
+import qrcode
+from PIL import Image
 
-def generate_summary_statistics(df):
-    summary_stats = {}
-    numeric_cols = df.select_dtypes(include=['number']).columns
-    
-    for column in numeric_cols:
-        values = df[column].dropna()
-        if len(values) == 0:
-            continue
-            
-        mode_series = values.mode()
-        mode_val = mode_series.iloc[0] if len(mode_series) > 0 else None
-        
-        stats = {
-            'mean': float(values.mean()),
-            'median': float(values.median()),
-            'mode': float(mode_val) if mode_val is not None else None,
-            'std_dev': float(values.std()),
-            'variance': float(values.var()),
-            'min': float(values.min()),
-            'max': float(values.max()),
-            'count': int(len(values))
-        }
-        summary_stats[column] = stats
-    
-    return summary_stats
 
-def format_output(summary_stats):
-    if not summary_stats:
-        return "No numeric columns with valid data found."
-    
-    rows = []
-    for column, stats in summary_stats.items():
-        rows.append([
-            column,
-            round(stats['mean'], 6) if stats['mean'] is not None else 'N/A',
-            round(stats['median'], 6) if stats['median'] is not None else 'N/A',
-            round(stats['mode'], 6) if stats['mode'] is not None else 'N/A',
-            round(stats['std_dev'], 6) if stats['std_dev'] is not None else 'N/A',
-            round(stats['variance'], 6) if stats['variance'] is not None else 'N/A',
-            round(stats['min'], 6) if stats['min'] is not None else 'N/A',
-            round(stats['max'], 6) if stats['max'] is not None else 'N/A'
-        ])
-    
-    return tabulate(
-        rows,
-        headers=['Column', 'Mean', 'Median', 'Mode', 'Std Dev', 'Variance', 'Min', 'Max'],
-        tablefmt='orgtbl'
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate QR codes from text input and save as PNG files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Example: python qr_code_generator.py -t 'https://example.com' -o output.png"
     )
+    parser.add_argument(
+        "-t", "--text",
+        required=True,
+        help="Text or data to encode in the QR code"
+    )
+    parser.add_argument(
+        "-o", "--output",
+        required=True,
+        help="Output file path for the PNG image (e.g., output.png)"
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="QR Code Generator v1.0.0"
+    )
+    return parser.parse_args()
+
+
+def validate_output_path(output_path):
+    path = Path(output_path)
+    if path.exists() and not path.is_file():
+        raise ValueError(f"Output path '{output_path}' exists but is not a file")
+    if path.suffix.lower() != ".png":
+        raise ValueError("Output file must have .png extension")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        raise PermissionError(f"Cannot create directory: {path.parent}")
+    return path
+
+
+def generate_qr_code(text, error_correction=qrcode.constants.ERROR_CORRECT_M):
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=error_correction,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(text)
+    qr.make(fit=True)
+    return qr.make_image(fill_color="black", back_color="white")
+
+
+def save_png_image(image, output_path):
+    try:
+        image.save(output_path, format="PNG")
+    except PermissionError:
+        raise PermissionError(f"Permission denied writing to '{output_path}'")
+    except Exception as e:
+        raise IOError(f"Failed to save image: {e}")
+
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Generate summary statistics for numeric columns in a CSV file.'
-    )
-    parser.add_argument('file', help='Path to the CSV file')
-    parser.add_argument('--output', '-o', choices=['table', 'json'], default='table',
-                       help='Output format (default: table)')
-    args = parser.parse_args()
+    args = parse_args()
     
-    df = parse_csv_file(args.file)
-    if df is None:
+    if not args.text.strip():
+        print("Error: Input text cannot be empty", file=sys.stderr)
         sys.exit(1)
     
-    summary_stats = generate_summary_statistics(df)
-    
-    if args.output == 'json':
-        import json
-        print(json.dumps(summary_stats, indent=2))
-    else:
-        print(format_output(summary_stats))
+    try:
+        output_path = validate_output_path(args.output)
+        image = generate_qr_code(args.text)
+        save_png_image(image, output_path)
+        print(f"Successfully generated QR code: {output_path.resolve()}")
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except IOError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        sys.exit(1)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

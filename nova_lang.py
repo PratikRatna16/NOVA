@@ -2,6 +2,8 @@
 import os
 import ast
 import time
+import subprocess
+import re
 from dotenv import load_dotenv
 from typing import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -172,6 +174,45 @@ def debug_node(state: NovaState) -> NovaState:
         print(f"⚠ Debug fix failed: {e}")
         return state
 
+def test_node(state: NovaState) -> NovaState:
+    print("\n🧪 [TESTER] Running smoke test...")
+    for attempt in range(2):
+        try:
+            result = subprocess.run(
+                ["python", "system_monitor.py", "--help"],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if result.returncode == 0:
+                print("✅ Smoke test passed — no import/runtime errors.")
+                return state
+
+            match = re.search(r"No module named '(\w+)'", result.stderr)
+            if match and attempt == 0:
+                missing = match.group(1)
+                print(f"📦 Missing dependency detected: {missing}. Installing...")
+                install = subprocess.run(
+                    ["pip", "install", "--break-system-packages", missing],
+                    capture_output=True, text=True
+                )
+                if install.returncode == 0:
+                    print(f"✅ Installed {missing}. Retrying smoke test...")
+                    continue
+                else:
+                    print(f"⚠ Failed to install {missing}: {install.stderr[-300:]}")
+                    break
+            else:
+                print(f"⚠ Smoke test failed:\n{result.stderr[-500:]}")
+                break
+        except subprocess.TimeoutExpired:
+            print("⚠ Smoke test timed out (script may not support --help).")
+            break
+        except Exception as e:
+            print(f"⚠ Smoke test error: {e}")
+            break
+    return state
+
 def reviewer_node(state: NovaState) -> NovaState:
     print("\n🔍 [REVIEWER] Auditing code...")
     prompt = (
@@ -194,7 +235,9 @@ def build_graph():
     graph.set_entry_point("researcher")
     graph.add_edge("researcher", "coder")
     graph.add_edge("coder", "debugger")
-    graph.add_edge("debugger", "reviewer")
+    graph.add_node("tester", test_node)
+    graph.add_edge("debugger", "tester")
+    graph.add_edge("tester", "reviewer")
     graph.add_edge("reviewer", END)
     return graph.compile()
 
