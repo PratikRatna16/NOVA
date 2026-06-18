@@ -1,74 +1,91 @@
-# QR Code Generator CLI Tool
+# Morse Code Converter CLI Tool
 ## Overview
-The QR code generator CLI tool is designed to generate QR codes from input text and save them as PNG files. This tool will provide a simple and efficient way to create QR codes for various applications.
+The Morse Code Converter CLI tool is a command-line application that converts text to Morse code and vice versa. This tool will provide a simple and efficient way to translate text to Morse code and back, making it useful for various applications such as communication, education, and experimentation.
 
-## Core Requirements
+## Requirements
 ### Functional Requirements
-1. **Text Input**: The tool must accept text input from the user.
-2. **QR Code Generation**: The tool must generate a QR code based on the input text.
-3. **PNG Output**: The tool must save the generated QR code as a PNG file.
-4. **Error Handling**: The tool must handle errors and exceptions, such as invalid input or file system errors.
+* Convert text to Morse code
+* Convert Morse code to text
+* Support for multiple input formats (e.g., string, file)
+* Support for multiple output formats (e.g., string, file)
+* Provide help and usage instructions
 
 ### Non-Functional Requirements
-1. **Performance**: The tool must generate QR codes efficiently and quickly.
-2. **Security**: The tool must ensure the security and integrity of the input text and generated QR code.
-3. **Usability**: The tool must provide a user-friendly interface and clear instructions for use.
-
-## Technical Requirements
-### Dependencies
-1. **QR Code Library**: A library for generating QR codes, such as `qrcode` or `pyqrcode`.
-2. **PNG Library**: A library for saving images as PNG files, such as `Pillow`.
-3. **Command-Line Interface Library**: A library for building CLI tools, such as `argparse` or `click`.
-
-### System Requirements
-1. **Operating System**: The tool must be compatible with Windows, macOS, and Linux.
-2. **Python Version**: The tool must be compatible with Python 3.8 or later.
+* Performance: The tool should be able to handle large inputs efficiently
+* Security: The tool should not store or transmit any sensitive information
+* Usability: The tool should be easy to use and understand, with clear instructions and feedback
+* Maintainability: The tool should be easy to modify and update
 
 ## Design
 ### Architecture
-The tool will consist of the following components:
-1. **Text Input**: A module for accepting text input from the user.
-2. **QR Code Generator**: A module for generating QR codes based on the input text.
-3. **PNG Output**: A module for saving the generated QR code as a PNG file.
-4. **Error Handler**: A module for handling errors and exceptions.
+* The tool will be built using a modular architecture, with separate modules for text-to-Morse code conversion and Morse code-to-text conversion
+* The tool will use a dictionary-based approach to map text characters to Morse code sequences and vice versa
 
-### User Interface
-The tool will provide a simple and intuitive CLI interface, with the following features:
-1. **Input Prompt**: A prompt for the user to enter the text to be encoded.
-2. **Output File**: An option to specify the output file name and location.
-3. **Error Messages**: Clear and descriptive error messages for any errors or exceptions.
+### Components
+* `text_to_morse`: a module that converts text to Morse code
+* `morse_to_text`: a module that converts Morse code to text
+* `input_handler`: a module that handles user input and provides feedback
+* `output_handler`: a module that handles output and provides feedback
+
+### Interfaces
+* `CLI Interface`: a command-line interface that allows users to interact with the tool
+* `API Interface`: a programmatic interface that allows other applications to use the tool's functionality
 
 ## Implementation
-### Code Structure
-The code will be organized into the following modules:
-1. **`main.py`**: The main entry point for the tool.
-2. **`qr_code_generator.py`**: A module for generating QR codes.
-3. **`png_output.py`**: A module for saving images as PNG files.
-4. **`error_handler.py`**: A module for handling errors and exceptions.
+### Programming Language
+* The tool will be implemented in Python 3.x
 
-### Example Use Case
-```bash
-$ python qr_code_generator.py -t "https://example.com" -o output.png
-```
-This will generate a QR code for the URL "https://example.com" and save it as a PNG file named "output.png".
+### Dependencies
+* `argparse`: a library for parsing command-line arguments
+* `dict`: a library for working with dictionaries
+
+### Code Structure
+* The code will be organized into separate modules for each component
+* Each module will have a clear and consistent naming convention
+
+## Example Use Cases
+### Converting Text to Morse Code
+* User input: `hello`
+* Output: `.... . .-.. .-.. ---`
+
+### Converting Morse Code to Text
+* User input: `.... . .-.. .-.. ---`
+* Output: `hello`
+
+## Command-Line Interface
+### Commands
+* `convert`: converts text to Morse code or Morse code to text
+* `help`: provides help and usage instructions
+
+### Options
+* `--input`: specifies the input format (e.g., string, file)
+* `--output`: specifies the output format (e.g., string, file)
+
+## API Interface
+### Endpoints
+* `convert`: converts text to Morse code or Morse code to text
+* `help`: provides help and usage instructions
+
+### Request/Response Format
+* `JSON`: the tool will use JSON to exchange data with other applications
 
 ## Testing
 ### Unit Tests
-The tool will include unit tests for each module, using a testing framework such as `unittest`.
+* The tool will have unit tests for each component to ensure correct functionality
 
 ### Integration Tests
-The tool will include integration tests to ensure that the entire tool works as expected, including error handling and edge cases.
+* The tool will have integration tests to ensure that the components work together correctly
 
 ## Deployment
-### Packaging
-The tool will be packaged as a Python package, using a tool such as `setuptools`.
-
 ### Distribution
-The tool will be distributed via PyPI, allowing users to install it using `pip`.
+* The tool will be distributed as a Python package
+
+### Installation
+* The tool will be installed using pip
 
 ## Maintenance
 ### Updates
-The tool will be updated regularly to ensure compatibility with new Python versions and to fix any bugs or issues.
+* The tool will be updated regularly to fix bugs and add new features
 
-### Documentation
-The tool will include clear and concise documentation, including a README file and usage instructions.
+### Bug Reporting
+* Users will be able to report bugs and provide feedback through a designated channel (e.g., GitHub issues)

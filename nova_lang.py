@@ -1,9 +1,10 @@
-
 import os
 import ast
 import time
 import subprocess
 import re
+import sqlite3
+from datetime import datetime
 from dotenv import load_dotenv
 from typing import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -73,6 +74,35 @@ CODER_MODELS = [
     "nvidia/nemotron-3-super-120b-a12b:free",
 ]
 
+_run_meta = {"model_used": None, "time_taken": None, "output_tokens": None, "syntax_valid": None}
+
+# ── LOGGING ──────────────────────────────────────────
+def init_log_db():
+    conn = sqlite3.connect("nova_runs.db")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            topic TEXT,
+            model_used TEXT,
+            time_taken REAL,
+            output_tokens INTEGER,
+            syntax_valid INTEGER,
+            execution_valid INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def log_run(topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid):
+    conn = sqlite3.connect("nova_runs.db")
+    conn.execute(
+        "INSERT INTO runs (timestamp, topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (datetime.now().isoformat(), topic, model_used, time_taken, output_tokens, int(bool(syntax_valid)), int(bool(execution_valid)))
+    )
+    conn.commit()
+    conn.close()
+
 # ── HELPERS ───────────────────────────────────────────
 def call_with_fallback(primary, fallback, messages):
     try:
@@ -94,10 +124,14 @@ def call_coder(messages):
             print(f"✅ Model: {model_id}")
             print(f"⏱ Time: {elapsed:.2f}s")
             print(f"🪙 Tokens — Input: {input_tokens} | Output: {output_tokens}")
+            _run_meta["model_used"] = model_id
+            _run_meta["time_taken"] = elapsed
+            _run_meta["output_tokens"] = output_tokens
             return response.content
         except Exception as e:
             print(f"⚠ {model_id} failed: {e} → trying next")
     print("⚠ All OpenRouter models failed → falling back to Groq")
+    _run_meta["model_used"] = "groq-fallback"
     return groq_llm.invoke(messages).content
 
 def call_hf_reviewer(prompt):
@@ -125,16 +159,16 @@ def coder_node(state: NovaState) -> NovaState:
     budget_instruction = COMPLEXITY_BUDGET[complexity]
 
     messages = [
-       SystemMessage(content=f"""You are a senior Python engineer. Output rules:
-           - Return ONLY raw Python code. No markdown, no explanation, no preamble.
-           - Write a SINGLE Python file. Do NOT import from local modules (no "from api_client import X", no "from utils import Y"). Everything must be defined in this one file.
-           - Only import standard library modules or well-known third-party packages (requests, argparse, etc).
-           - {budget_instruction}
-           - No empty functions, unused imports, or redundant abstractions.
-           - Use modern Python idioms: comprehensions, walrus operator, ternary where readable.
-           - Inline validation at point of use.
-           - Map commands/routes via dict dispatch, not if/else chains.
-           - Comments only where logic is non-obvious."""),
+        SystemMessage(content=f"""You are a senior Python engineer. Output rules:
+- Return ONLY raw Python code. No markdown, no explanation, no preamble.
+- Write a SINGLE Python file. Do NOT import from local modules (no "from api_client import X", no "from utils import Y"). Everything must be defined in this one file.
+- Only import standard library modules or well-known third-party packages (requests, argparse, etc).
+- {budget_instruction}
+- No empty functions, unused imports, or redundant abstractions.
+- Use modern Python idioms: comprehensions, walrus operator, ternary where readable.
+- Inline validation at point of use.
+- Map commands/routes via dict dispatch, not if/else chains.
+- Comments only where logic is non-obvious."""),
         HumanMessage(content=(
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
             "Write a fully functional Python script with robust error handling."
@@ -150,6 +184,7 @@ def debug_node(state: NovaState) -> NovaState:
 
     if is_valid:
         print("✅ Code is syntactically valid.")
+        _run_meta["syntax_valid"] = True
         with open("system_monitor.py", "w") as f:
             f.write(result)
         return {**state, "code": result}
@@ -165,17 +200,21 @@ def debug_node(state: NovaState) -> NovaState:
         still_valid, final_code = validate_code(fixed)
         if still_valid:
             print("✅ Fix successful, code is now valid.")
+            _run_meta["syntax_valid"] = True
         else:
             print(f"⚠ Fix attempt still broken: {final_code}")
+            _run_meta["syntax_valid"] = False
         with open("system_monitor.py", "w") as f:
             f.write(final_code)
         return {**state, "code": final_code}
     except Exception as e:
         print(f"⚠ Debug fix failed: {e}")
+        _run_meta["syntax_valid"] = False
         return state
 
 def test_node(state: NovaState) -> NovaState:
     print("\n🧪 [TESTER] Running smoke test...")
+    execution_valid = False
     for attempt in range(2):
         try:
             result = subprocess.run(
@@ -186,8 +225,8 @@ def test_node(state: NovaState) -> NovaState:
             )
             if result.returncode == 0:
                 print("✅ Smoke test passed — no import/runtime errors.")
-                return state
-
+                execution_valid = True
+                break
             match = re.search(r"No module named '(\w+)'", result.stderr)
             if match and attempt == 0:
                 missing = match.group(1)
@@ -211,6 +250,15 @@ def test_node(state: NovaState) -> NovaState:
         except Exception as e:
             print(f"⚠ Smoke test error: {e}")
             break
+
+    log_run(
+        topic=state['topic'],
+        model_used=_run_meta["model_used"],
+        time_taken=_run_meta["time_taken"],
+        output_tokens=_run_meta["output_tokens"],
+        syntax_valid=_run_meta["syntax_valid"],
+        execution_valid=execution_valid
+    )
     return state
 
 def reviewer_node(state: NovaState) -> NovaState:
@@ -231,11 +279,11 @@ def build_graph():
     graph.add_node("researcher", researcher_node)
     graph.add_node("coder", coder_node)
     graph.add_node("debugger", debug_node)
+    graph.add_node("tester", test_node)
     graph.add_node("reviewer", reviewer_node)
     graph.set_entry_point("researcher")
     graph.add_edge("researcher", "coder")
     graph.add_edge("coder", "debugger")
-    graph.add_node("tester", test_node)
     graph.add_edge("debugger", "tester")
     graph.add_edge("tester", "reviewer")
     graph.add_edge("reviewer", END)
@@ -244,6 +292,7 @@ def build_graph():
 # ── MAIN ──────────────────────────────────────────────
 if __name__ == "__main__":
     print("\n🚀 [NOVA ENGINE INITIALIZED — LangGraph Mode]")
+    init_log_db()
     topic = input("📋 Enter your task: ").strip()
     if not topic:
         print("No task provided.")
