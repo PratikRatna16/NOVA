@@ -191,7 +191,8 @@ def coder_node(state: NovaState) -> NovaState:
 - Use modern Python idioms: comprehensions, walrus operator, ternary where readable.
 - Inline validation at point of use.
 - Map commands/routes via dict dispatch, not if/else chains.
-- Comments only where logic is non-obvious."""),
+- Comments only where logic is non-obvious.
+- Trace every optional flag mentally before finalizing: no flag combination should produce a silent no-op when the user expects output (e.g. depth=0 disabling all crawling, --dry-run deleting nothing silently."""),
         HumanMessage(content=human_content)
     ]
     code = call_coder(messages)
