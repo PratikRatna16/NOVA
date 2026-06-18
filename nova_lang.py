@@ -123,14 +123,16 @@ def coder_node(state: NovaState) -> NovaState:
     budget_instruction = COMPLEXITY_BUDGET[complexity]
 
     messages = [
-        SystemMessage(content=f"""You are a senior Python engineer. Output rules:
-- Return ONLY raw Python code. No markdown, no explanation, no preamble.
-- {budget_instruction}
-- No empty functions, unused imports, or redundant abstractions.
-- Use modern Python idioms: comprehensions, walrus operator, ternary where readable.
-- Inline validation at point of use.
-- Map commands/routes via dict dispatch, not if/else chains.
-- Comments only where logic is non-obvious."""),
+       SystemMessage(content=f"""You are a senior Python engineer. Output rules:
+           - Return ONLY raw Python code. No markdown, no explanation, no preamble.
+           - Write a SINGLE Python file. Do NOT import from local modules (no "from api_client import X", no "from utils import Y"). Everything must be defined in this one file.
+           - Only import standard library modules or well-known third-party packages (requests, argparse, etc).
+           - {budget_instruction}
+           - No empty functions, unused imports, or redundant abstractions.
+           - Use modern Python idioms: comprehensions, walrus operator, ternary where readable.
+           - Inline validation at point of use.
+           - Map commands/routes via dict dispatch, not if/else chains.
+           - Comments only where logic is non-obvious."""),
         HumanMessage(content=(
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
             "Write a fully functional Python script with robust error handling."
