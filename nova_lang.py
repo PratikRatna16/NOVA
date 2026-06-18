@@ -15,12 +15,17 @@ from langgraph.graph import StateGraph, END
 
 load_dotenv()
 
+MAX_RETRIES = 2
+
 # ── STATE ────────────────────────────────────────────
 class NovaState(TypedDict):
     topic: str
     blueprint: str
     code: str
     audit: str
+    retry_count: int
+    last_error: str
+    execution_valid: bool
 
 # ── VALIDATION ───────────────────────────────────────
 def validate_code(code: str) -> tuple[bool, str]:
@@ -88,17 +93,18 @@ def init_log_db():
             time_taken REAL,
             output_tokens INTEGER,
             syntax_valid INTEGER,
-            execution_valid INTEGER
+            execution_valid INTEGER,
+            retry_count INTEGER
         )
     """)
     conn.commit()
     conn.close()
 
-def log_run(topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid):
+def log_run(topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid, retry_count):
     conn = sqlite3.connect("nova_runs.db")
     conn.execute(
-        "INSERT INTO runs (timestamp, topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (datetime.now().isoformat(), topic, model_used, time_taken, output_tokens, int(bool(syntax_valid)), int(bool(execution_valid)))
+        "INSERT INTO runs (timestamp, topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (datetime.now().isoformat(), topic, model_used, time_taken, output_tokens, int(bool(syntax_valid)), int(bool(execution_valid)), retry_count)
     )
     conn.commit()
     conn.close()
@@ -158,6 +164,23 @@ def coder_node(state: NovaState) -> NovaState:
     complexity = estimate_complexity(state['topic'])
     budget_instruction = COMPLEXITY_BUDGET[complexity]
 
+    retry_count = state.get("retry_count", 0)
+    last_error = state.get("last_error", "")
+
+    if retry_count > 0 and last_error:
+        print(f"🔁 Retry attempt {retry_count} — fixing previous execution error.")
+        human_content = (
+            f"Using this blueprint:\n\n{state['blueprint']}\n\n"
+            f"Here is the previous code attempt that FAILED to run:\n\n{state['code']}\n\n"
+            f"It failed with this execution error:\n{last_error}\n\n"
+            "Fix the root cause and write a corrected, fully functional Python script with robust error handling."
+        )
+    else:
+        human_content = (
+            f"Using this blueprint:\n\n{state['blueprint']}\n\n"
+            "Write a fully functional Python script with robust error handling."
+        )
+
     messages = [
         SystemMessage(content=f"""You are a senior Python engineer. Output rules:
 - Return ONLY raw Python code. No markdown, no explanation, no preamble.
@@ -169,10 +192,7 @@ def coder_node(state: NovaState) -> NovaState:
 - Inline validation at point of use.
 - Map commands/routes via dict dispatch, not if/else chains.
 - Comments only where logic is non-obvious."""),
-        HumanMessage(content=(
-            f"Using this blueprint:\n\n{state['blueprint']}\n\n"
-            "Write a fully functional Python script with robust error handling."
-        ))
+        HumanMessage(content=human_content)
     ]
     code = call_coder(messages)
     print(f"DEBUG: code length = {len(code)} chars")
@@ -215,6 +235,7 @@ def debug_node(state: NovaState) -> NovaState:
 def test_node(state: NovaState) -> NovaState:
     print("\n🧪 [TESTER] Running smoke test...")
     execution_valid = False
+    error_text = ""
     for attempt in range(2):
         try:
             result = subprocess.run(
@@ -226,6 +247,7 @@ def test_node(state: NovaState) -> NovaState:
             if result.returncode == 0:
                 print("✅ Smoke test passed — no import/runtime errors.")
                 execution_valid = True
+                error_text = ""
                 break
             match = re.search(r"No module named '(\w+)'", result.stderr)
             if match and attempt == 0:
@@ -240,16 +262,24 @@ def test_node(state: NovaState) -> NovaState:
                     continue
                 else:
                     print(f"⚠ Failed to install {missing}: {install.stderr[-300:]}")
+                    error_text = install.stderr[-500:]
                     break
             else:
                 print(f"⚠ Smoke test failed:\n{result.stderr[-500:]}")
+                error_text = result.stderr[-500:]
                 break
         except subprocess.TimeoutExpired:
             print("⚠ Smoke test timed out (script may not support --help).")
+            error_text = "Smoke test timed out."
             break
         except Exception as e:
             print(f"⚠ Smoke test error: {e}")
+            error_text = str(e)
             break
+
+    retry_count = state.get("retry_count", 0)
+    if not execution_valid:
+        retry_count += 1
 
     log_run(
         topic=state['topic'],
@@ -257,9 +287,19 @@ def test_node(state: NovaState) -> NovaState:
         time_taken=_run_meta["time_taken"],
         output_tokens=_run_meta["output_tokens"],
         syntax_valid=_run_meta["syntax_valid"],
-        execution_valid=execution_valid
+        execution_valid=execution_valid,
+        retry_count=retry_count
     )
-    return state
+    return {**state, "execution_valid": execution_valid, "last_error": error_text, "retry_count": retry_count}
+
+def route_after_test(state: NovaState) -> str:
+    if state.get("execution_valid"):
+        return "reviewer"
+    if state.get("retry_count", 0) <= MAX_RETRIES:
+        print(f"🔁 Execution failed — routing back to coder (attempt {state.get('retry_count', 0)}/{MAX_RETRIES}).")
+        return "coder"
+    print("⚠ Max retries reached. Sending current code to reviewer despite failure.")
+    return "reviewer"
 
 def reviewer_node(state: NovaState) -> NovaState:
     print("\n🔍 [REVIEWER] Auditing code...")
@@ -285,7 +325,11 @@ def build_graph():
     graph.add_edge("researcher", "coder")
     graph.add_edge("coder", "debugger")
     graph.add_edge("debugger", "tester")
-    graph.add_edge("tester", "reviewer")
+    graph.add_conditional_edges(
+        "tester",
+        route_after_test,
+        {"coder": "coder", "reviewer": "reviewer"}
+    )
     graph.add_edge("reviewer", END)
     return graph.compile()
 
@@ -299,7 +343,10 @@ if __name__ == "__main__":
     else:
         print(f"Starting pipeline for: {topic}")
         pipeline = build_graph()
-        result = pipeline.invoke({"topic": topic, "blueprint": "", "code": "", "audit": ""})
+        result = pipeline.invoke({
+            "topic": topic, "blueprint": "", "code": "", "audit": "",
+            "retry_count": 0, "last_error": "", "execution_valid": False
+        })
         print("\n" + "="*60)
         print("✅ Pipeline completed.")
         print("📂 Created: system_blueprint.md, system_monitor.py, audit_log.md")
