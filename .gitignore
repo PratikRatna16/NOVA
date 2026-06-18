@@ -1,4 +1,12 @@
-venv/
-.env
-__pycache__/
-*.pyc
+audit_log.md
+system_blueprint.md
+system_monitor.py
+expenses_data.json
+inventory.json
+june.csv
+report.csv
+report.txt
+students.csv
+*.json
+*.csv
+*.txt
