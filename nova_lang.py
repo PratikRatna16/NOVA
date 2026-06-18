@@ -1,5 +1,6 @@
 import os
 import ast
+import uuid
 import time
 import subprocess
 import re
@@ -26,6 +27,7 @@ class NovaState(TypedDict):
     retry_count: int
     last_error: str
     execution_valid: bool
+    run_id: str
 
 # ── VALIDATION ───────────────────────────────────────
 def validate_code(code: str) -> tuple[bool, str]:
@@ -94,17 +96,18 @@ def init_log_db():
             output_tokens INTEGER,
             syntax_valid INTEGER,
             execution_valid INTEGER,
-            retry_count INTEGER
+            retry_count INTEGER,
+            run_id TEXT
         )
     """)
     conn.commit()
     conn.close()
 
-def log_run(topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid, retry_count):
+def log_run(topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid, retry_count,run_id):
     conn = sqlite3.connect("nova_runs.db")
     conn.execute(
-        "INSERT INTO runs (timestamp, topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (datetime.now().isoformat(), topic, model_used, time_taken, output_tokens, int(bool(syntax_valid)), int(bool(execution_valid)), retry_count)
+        "INSERT INTO runs (timestamp, topic, model_used, time_taken, output_tokens, syntax_valid, execution_valid, retry_count, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (datetime.now().isoformat(), topic, model_used, time_taken, output_tokens, int(bool(syntax_valid)), int(bool(execution_valid)), retry_count, run_id)
     )
     conn.commit()
     conn.close()
@@ -154,7 +157,8 @@ def researcher_node(state: NovaState) -> NovaState:
         ))
     ]
     blueprint = call_with_fallback(groq_llm, get_openrouter_llm("google/gemma-4-31b-it:free"), messages)
-    with open("system_blueprint.md", "w") as f:
+    os.makedirs("runs", exist_ok=True)
+    with open(f"runs/{state['run_id']}_blueprint.md", "w") as f:
         f.write(blueprint)
     print("✅ Blueprint written.")
     return {**state, "blueprint": blueprint}
@@ -206,7 +210,7 @@ def debug_node(state: NovaState) -> NovaState:
     if is_valid:
         print("✅ Code is syntactically valid.")
         _run_meta["syntax_valid"] = True
-        with open("system_monitor.py", "w") as f:
+        with open(f"runs/{state['run_id']}_code.py",  "w") as f:
             f.write(result)
         return {**state, "code": result}
 
@@ -225,7 +229,7 @@ def debug_node(state: NovaState) -> NovaState:
         else:
             print(f"⚠ Fix attempt still broken: {final_code}")
             _run_meta["syntax_valid"] = False
-        with open("system_monitor.py", "w") as f:
+        with open(f"runs/{state['run_id']}_code.py", "w") as f:
             f.write(final_code)
         return {**state, "code": final_code}
     except Exception as e:
@@ -240,7 +244,7 @@ def test_node(state: NovaState) -> NovaState:
     for attempt in range(2):
         try:
             result = subprocess.run(
-                ["python", "system_monitor.py", "--help"],
+                [f"python", f"runs/{state['run_id']}_code.py",  "--help"],
                 capture_output=True,
                 text=True,
                 timeout=15
@@ -250,7 +254,9 @@ def test_node(state: NovaState) -> NovaState:
                 execution_valid = True
                 error_text = ""
                 break
-            match = re.search(r"No module named '(\w+)'", result.stderr)
+            match = re.search(r"No module named '(\w+)'", result.stderr + result.stdout)
+            if not match:
+                match = re.search(r"pip install (\w+)", result.stderr + result.stdout)
             if match and attempt == 0:
                 missing = match.group(1)
                 print(f"📦 Missing dependency detected: {missing}. Installing...")
@@ -289,7 +295,8 @@ def test_node(state: NovaState) -> NovaState:
         output_tokens=_run_meta["output_tokens"],
         syntax_valid=_run_meta["syntax_valid"],
         execution_valid=execution_valid,
-        retry_count=retry_count
+        retry_count=retry_count,
+        run_id=state['run_id']
     )
     return {**state, "execution_valid": execution_valid, "last_error": error_text, "retry_count": retry_count}
 
@@ -309,7 +316,7 @@ def reviewer_node(state: NovaState) -> NovaState:
         "Identify bugs, security issues, logic flaws. Write a structured Markdown audit log."
     )
     audit = call_hf_reviewer(prompt)
-    with open("audit_log.md", "w") as f:
+    with open(f"runs/{state['run_id']}_audit.md", "w") as f:
         f.write(audit)
     print("✅ Audit written.")
     return {**state, "audit": audit}
@@ -344,11 +351,14 @@ if __name__ == "__main__":
     else:
         print(f"Starting pipeline for: {topic}")
         pipeline = build_graph()
+        run_id = str(uuid.uuid4())[:8]
+        os.makedirs("runs", exist_ok=True)
         result = pipeline.invoke({
             "topic": topic, "blueprint": "", "code": "", "audit": "",
-            "retry_count": 0, "last_error": "", "execution_valid": False
+            "retry_count": 0, "last_error": "", "execution_valid": False,
+            "run_id": run_id
         })
         print("\n" + "="*60)
         print("✅ Pipeline completed.")
-        print("📂 Created: system_blueprint.md, system_monitor.py, audit_log.md")
+        print(f"📂 Run ID: {run_id} | Files saved in runs/{run_id}_*.py/md")
         print("="*60)
