@@ -6,6 +6,8 @@ import subprocess
 import re
 import sqlite3
 from datetime import datetime
+from nova_graph_memory import ExperienceGraph
+graph_memory = ExperienceGraph()
 from dotenv import load_dotenv
 from typing import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -149,10 +151,22 @@ def call_hf_reviewer(prompt):
 # ── NODES ─────────────────────────────────────────────
 def researcher_node(state: NovaState) -> NovaState:
     print("\n🔬 [RESEARCHER] Building blueprint...")
+
+    historical_context = graph_memory.recall_experience(state['topic'])
+    
+    # Add a custom guidance instruction if past context exists
+    graph_guidance = ""
+    if historical_context:
+        graph_guidance = (
+            f"\nTake note of this historical development experience from a similar project to optimize this design:\n"
+            f"{historical_context}\n"
+            f"Incorporate layout adjustments or fallbacks into your blueprint to prevent these errors.\n"
+        )
     messages = [
         SystemMessage(content="You are a technical researcher. Output clean structured Markdown blueprints only."),
         HumanMessage(content=(
             f"Research the core requirements for: {state['topic']}. "
+            f"{graph_guidance}"
             "Produce a comprehensive Markdown technical specification."
         ))
     ]
@@ -171,17 +185,21 @@ def coder_node(state: NovaState) -> NovaState:
     retry_count = state.get("retry_count", 0)
     last_error = state.get("last_error", "")
 
+    historical_context = graph_memory.recall_experience(state['topic'])
+
     if retry_count > 0 and last_error:
         print(f"🔁 Retry attempt {retry_count} — fixing previous execution error.")
         human_content = (
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
             f"Here is the previous code attempt that FAILED to run:\n\n{state['code']}\n\n"
             f"It failed with this execution error:\n{last_error}\n\n"
+            f"{historical_context}"
             "Fix the root cause and write a corrected, fully functional Python script with robust error handling."
         )
     else:
         human_content = (
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
+            f"{historical_context}"
             "Write a fully functional Python script with robust error handling."
         )
 
@@ -212,6 +230,8 @@ def debug_node(state: NovaState) -> NovaState:
         _run_meta["syntax_valid"] = True
         with open(f"runs/{state['run_id']}_code.py",  "w") as f:
             f.write(result)
+        with open("system_monitor.py", "w") as f:
+            f.write(result)
         return {**state, "code": result}
 
     print(f"⚠ Syntax error found: {result}")
@@ -226,10 +246,22 @@ def debug_node(state: NovaState) -> NovaState:
         if still_valid:
             print("✅ Fix successful, code is now valid.")
             _run_meta["syntax_valid"] = True
+
+            try:
+                graph_memory.remember_experience(
+                    run_id=state['run_id'],
+                    task_prompt=state['topic'],
+                    error_text=str(result),
+                    fix_text="Syntax Fix Applied: Code successfully validated after adjustments."
+                )
+            except Exception as ge:
+                print(f"⚠️ Graph logging skipped: {ge}")
         else:
             print(f"⚠ Fix attempt still broken: {final_code}")
             _run_meta["syntax_valid"] = False
         with open(f"runs/{state['run_id']}_code.py", "w") as f:
+            f.write(final_code)
+        with open("system_monitor.py", "w") as f:
             f.write(final_code)
         return {**state, "code": final_code}
     except Exception as e:
@@ -283,6 +315,23 @@ def test_node(state: NovaState) -> NovaState:
             print(f"⚠ Smoke test error: {e}")
             error_text = str(e)
             break
+    try:
+        if execution_valid:
+            graph_memory.remember_experience(
+                run_id=state['run_id'],
+                task_prompt=state['topic'],
+                error_text="",
+                fix_text=f"Task completed successfully. Lines: {len(state.get('code','').splitlines())}. No runtime errors."
+            )
+        elif error_text:
+            graph_memory.remember_experience(
+                run_id=state['run_id'],
+                task_prompt=state['topic'],
+                error_text=error_text,
+                fix_text=""
+            )
+    except Exception as ge:
+        print(f"⚠️ Graph mapping log skipped: {ge}")
 
     retry_count = state.get("retry_count", 0)
     if not execution_valid:
