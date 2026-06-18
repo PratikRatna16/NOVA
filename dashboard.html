@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOVA Live Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #38bdf8;
+            margin-bottom: 2rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+        .stat-card {
+            background-color: #1e293b;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            text-align: center;
+        }
+        .stat-val {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #f1f5f9;
+            margin-top: 0.5rem;
+        }
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #1e293b;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+        th {
+            background-color: #0f172a;
+            color: #38bdf8;
+            font-weight: 600;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        .status-pass { color: #4ade80; font-weight: bold; }
+        .status-fail { color: #f87171; font-weight: bold; }
+        .error-msg {
+            background-color: #7f1d1d;
+            color: #fca5a5;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NOVA Execution Dashboard</h1>
+        
+        <div id="error-banner" class="error-msg">
+            Error: Unable to connect to the Flask API. Make sure <code>nova_api.py</code> is running.
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Runs</div>
+                <div id="stat-total" class="stat-val">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Pass Rate</div>
+                <div id="stat-passrate" class="stat-val">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Avg Time</div>
+                <div id="stat-time" class="stat-val">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Retries</div>
+                <div id="stat-retries" class="stat-val">-</div>
+            </div>
+        </div>
+
+        <h2>Recent Runs</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Timestamp</th>
+                    <th>Prompt Summary</th>
+                    <th>Duration</th>
+                    <th>Tokens</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="runs-table-body">
+                <tr>
+                    <td colspan="6" style="text-align: center; color: #94a3b8;">Loading live data...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:5000';
+
+        async function fetchDashboardData() {
+            try {
+                // 1. Fetch Stats
+                const statsRes = await fetch(`${API_BASE}/stats`);
+                const stats = await statsRes.json();
+                
+                document.getElementById('stat-total').innerText = stats.total_runs;
+                document.getElementById('stat-passrate').innerText = `${stats.pass_rate}%`;
+                document.getElementById('stat-time').innerText = `${stats.avg_time}s`;
+                document.getElementById('stat-retries').innerText = stats.total_retries;
+
+                // 2. Fetch Individual Runs
+                const runsRes = await fetch(`${API_BASE}/runs`);
+                const runs = await runsRes.json();
+                
+                const tableBody = document.getElementById('runs-table-body');
+                tableBody.innerHTML = ''; 
+
+                if (runs.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #94a3b8;">No runs found.</td></tr>`;
+                    return;
+                }
+
+                // 3. Render rows matching your sqlite3.Row indices
+                runs.reverse().forEach(run => {
+                    const row = document.createElement('tr');
+                    
+                    // Since it returns dictionaries/objects, we fall back safely to positional indexes if needed
+                    const runId = run.id !== undefined ? run.id : run[0];
+                    const timestamp = run.timestamp || run[1] || 'N/A';
+                    const prompt = run.topic || 'N/A';
+                    const duration = run.time_taken;
+                    const tokens = run.output_tokens;
+                    const passed = run.execution_valid;
+
+                    const statusHTML = passed 
+                        ? '<span class="status-pass">PASS</span>' 
+                        : '<span class="status-fail">FAIL</span>';
+
+                    row.innerHTML = `
+                        <td>${runId}</td>
+                        <td>${timestamp.split('.')[0]}</td>
+                        <td title="${prompt}">${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}</td>
+                        <td>${parseFloat(duration).toFixed(2)}s</td>
+                        <td>${tokens}</td>
+                        <td>${statusHTML}</td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+
+                document.getElementById('error-banner').style.display = 'none';
+            } catch (err) {
+                console.error("Dashboard fetch error:", err);
+                document.getElementById('error-banner').style.display = 'block';
+            }
+        }
+
+        fetchDashboardData();
+    </script>
+</body>
+</html>
