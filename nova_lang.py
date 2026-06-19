@@ -8,6 +8,8 @@ import sqlite3
 from datetime import datetime
 from nova_graph_memory import ExperienceGraph
 graph_memory = ExperienceGraph()
+from nova_projects import ProjectDNA
+project_dna = ProjectDNA()
 from dotenv import load_dotenv
 from typing import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -203,6 +205,7 @@ def coder_node(state: NovaState) -> NovaState:
             "Write a fully functional Python script with robust error handling."
         )
 
+    dna_context = project_dna.recall(state['topic'])
     messages = [
         SystemMessage(content=f"""You are a senior Python engineer. Output rules:
 - Return ONLY raw Python code. No markdown, no explanation, no preamble.
@@ -214,7 +217,7 @@ def coder_node(state: NovaState) -> NovaState:
 - Inline validation at point of use.
 - Map commands/routes via dict dispatch, not if/else chains.
 - Comments only where logic is non-obvious.
-- Trace every optional flag mentally before finalizing: no flag combination should produce a silent no-op when the user expects output (e.g. depth=0 disabling all crawling, --dry-run deleting nothing silently."""),
+- Trace every optional flag mentally before finalizing: no flag combination should produce a silent no-op when the user expects output (e.g. depth=0 disabling all crawling, --dry-run deleting nothing silently.{dna_context}"""),
         HumanMessage(content=human_content)
     ]
     code = call_coder(messages)
@@ -379,6 +382,20 @@ def reviewer_node(state: NovaState) -> NovaState:
         deployment="Local CLI script — no deployment target",
         outcome=outcome
     )
+
+    try:
+        project_dna.store(
+            project_id=state['run_id'],
+            code=state['code'],
+            audit=audit,
+            topic=state['topic'],
+            execution_valid=state.get('execution_valid', False),
+            retry_count=state.get('retry_count', 0),
+            time_taken=_run_meta.get('time_taken'),
+            output_tokens=_run_meta.get('output_tokens')
+        )
+    except Exception as e:
+        print(f"⚠ Project DNA storage skipped: {e}")
     return {**state, "audit": audit}
 
 # ── GRAPH ─────────────────────────────────────────────
