@@ -368,6 +368,17 @@ def reviewer_node(state: NovaState) -> NovaState:
     with open(f"runs/{state['run_id']}_audit.md", "w") as f:
         f.write(audit)
     print("✅ Audit written.")
+    files_created = f"runs/{state['run_id']}_blueprint.md, runs/{state['run_id']}_code.py, runs/{state['run_id']}_audit.md, system_monitor.py"
+    outcome = f"{'PASS' if state.get('execution_valid') else 'FAIL'} after {state.get('retry_count', 0)} retries"
+
+    graph_memory.remember_experience(
+        run_id=state['run_id'],
+        task_prompt=state['topic'],
+        goal=state['topic'],
+        files_created=files_created,
+        deployment="Local CLI script — no deployment target",
+        outcome=outcome
+    )
     return {**state, "audit": audit}
 
 # ── GRAPH ─────────────────────────────────────────────
