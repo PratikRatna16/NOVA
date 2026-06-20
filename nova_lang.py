@@ -81,6 +81,7 @@ def get_openrouter_llm(model_id):
 
 CODER_MODELS = [
     "poolside/laguna-m.1:free",
+    "minimax/minimax-m3:free",
     "google/gemma-4-31b-it:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
 ]
@@ -172,7 +173,7 @@ def researcher_node(state: NovaState) -> NovaState:
             "Produce a comprehensive Markdown technical specification."
         ))
     ]
-    blueprint = call_with_fallback(groq_llm, get_openrouter_llm("google/gemma-4-31b-it:free"), messages)
+    blueprint = call_with_fallback(groq_llm, get_openrouter_llm("nvidia/nemotron-3-ultra-550b-a55b:free"), messages)
     os.makedirs("runs", exist_ok=True)
     with open(f"runs/{state['run_id']}_blueprint.md", "w") as f:
         f.write(blueprint)
