@@ -10,3 +10,4 @@ students.csv
 *.json
 *.csv
 *.txt
+runs/
