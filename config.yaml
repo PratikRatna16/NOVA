@@ -1,0 +1,10 @@
+log_file: test_server.log
+error_patterns:
+- ERROR
+- Exception
+- Failed
+alert_settings:
+- type: console
+alert_threshold: 1
+alert_throttle_seconds: 2
+follow: true

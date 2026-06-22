@@ -64,7 +64,7 @@ COMPLEXITY_BUDGET = {
 
 # ── LLMs ─────────────────────────────────────────────
 gemini_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model="gemini-3.5-flash",
     google_api_key=os.environ.get("GEMINI_API_KEY")
 )
 groq_llm = ChatGroq(
@@ -79,9 +79,16 @@ def get_openrouter_llm(model_id):
         base_url="https://openrouter.ai/api/v1"
     )
 
+def get_nvidia_llm(model_id):
+    return ChatOpenAI(
+        model=model_id,
+        api_key=os.environ.get("NVIDIA_API_KEY"),
+        base_url="https://integrate.api.nvidia.com/v1"
+    )
+
 CODER_MODELS = [
     "poolside/laguna-m.1:free",
-    "minimax/minimax-m3:free",
+    "moonshotai/kimi-k2-6",
     "google/gemma-4-31b-it:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
 ]
@@ -122,7 +129,7 @@ def call_with_fallback(primary, fallback, messages):
     try:
         return primary.invoke(messages).content
     except Exception as e:
-        print(f"⚠ Primary failed: {e} → switching to fallback")
+        print(f"⚠ Primary failed: {e} -> switching to fallback")
         return fallback.invoke(messages).content
 
 def call_coder(messages):
@@ -137,14 +144,22 @@ def call_coder(messages):
             output_tokens = usage.get("completion_tokens", "?")
             print(f"✅ Model: {model_id}")
             print(f"⏱ Time: {elapsed:.2f}s")
-            print(f"🪙 Tokens — Input: {input_tokens} | Output: {output_tokens}")
+            print(f"🪙 Tokens - Input: {input_tokens} | Output: {output_tokens}")
             _run_meta["model_used"] = model_id
             _run_meta["time_taken"] = elapsed
             _run_meta["output_tokens"] = output_tokens
             return response.content
         except Exception as e:
-            print(f"⚠ {model_id} failed: {e} → trying next")
-    print("⚠ All OpenRouter models failed → falling back to Groq")
+            print(f"⚠ {model_id} failed: {e} -> trying next")
+    try:
+        print("🖥 Trying NVIDIA fallback: kimi-k2-6")
+        response = get_nvidia_llm("moonshotai/kimi-k2-6").invoke(messages)
+        _run_meta["model_used"] = "moonshotai/kimi-k2-6-nvidia"
+        return response.content
+    except Exception as e:
+        print(f"⚠ NVIDIA fallback failed: {e} -> falling back to Groq")
+
+    print("⚠ All models failed (OpenRouter + NVIDIA) -> falling back to Groq")
     _run_meta["model_used"] = "groq-fallback"
     return groq_llm.invoke(messages).content
 
@@ -166,7 +181,49 @@ def researcher_node(state: NovaState) -> NovaState:
             f"Incorporate layout adjustments or fallbacks into your blueprint to prevent these errors.\n"
         )
     messages = [
-        SystemMessage(content="You are a technical researcher. Output clean structured Markdown blueprints only."),
+        SystemMessage(content=(
+            "You are a technical researcher. Output clean structured Markdown blueprints.\n\n"
+            "When designing CLI tools, enforce these rules:\n\n"
+            "INPUT & ARGUMENTS:\n"
+            "- ALWAYS use variable positional arguments (nargs=+) for terms that can be multiple.\n"
+            "- ALWAYS favor standard CLI arguments first. JSON/YAML config files are optional only.\n"
+            "- ALL time/scheduling utilities must accept variable overrides via CLI (-duration, -minutes).\n"
+            "- File format tools must infer format from file extensions automatically.\n"
+            "- For tools with distinct opposing actions (compress/decompress, encrypt/decrypt), ALWAYS use argparse subcommands not boolean flags mixed with positionals.\n"
+            "- If boolean action flags are used, they MUST be in a mutually exclusive group (add_mutually_exclusive_group(required=True)).\n\n"
+            "FILE HANDLING:\n"
+            "- ALWAYS append to existing JSON array structure. NEVER overwrite with w mode directly.\n\n"
+            "LIMIT/FLAG LOGIC:\n"
+            "- Any -l or --limit flag must have strict validation. Validate range BEFORE slicing.\n\n"
+            "SEARCH & AMBIGUITY:\n"
+            "- ALWAYS build two distinct paths - Direct Title Lookup first, fallback to Keyword Search.\n\n"
+            "STREAM PROCESSING:\n"
+            "- Each line must be evaluated ONCE only. Mark it consumed after first match.\n"
+            "- Throttling counters must be isolated per-line.\n\n"
+            "FEATURE COMPLETENESS:\n"
+            "- Parse the users topic for EVERY explicit analytical feature requested. Each must have console output.\n"
+            "- Security tools must display length, charset size, entropy bits, strength score.\n"
+            "- Metric/telemetry labels must change semantically based on operation direction. Never reuse compression labels for decompression output.\n\n"
+            "SMART DEFAULTS & INFERENCE:\n"
+            "- Infer file format from extensions automatically. Never require explicit flags for known extensions.\n"
+            "- Never throw validation errors for missing type declarations when standard extensions are provided.\n\n"
+            "NETWORK & API TOOLS:\n"
+            "- ALWAYS validate required credentials locally BEFORE making any network request. Abort immediately if missing.\n"
+            "- ALWAYS support environment variable fallbacks for API keys alongside explicit CLI flags.\n"
+            "- ALWAYS include explicit user-friendly error handling for HTTP status codes (401, 404, 500).\n\n"
+            "ARGUMENT MAPPING:\n"
+            "- For structured config file generation, strictly separate the friendly label/alias from the physical address/IP. Never map the same value to both.\n"
+            "- Trace every CLI argument variable destination explicitly.\n\n"
+            "REGEX & PATTERN MATCHING:\n"
+            "- ALWAYS use native Python re.sub() for regex substitutions. Never fall back to string slice substitution.\n"
+            "- Regex tools must correctly handle capture group backreferences (\\1, \\g<1>) dynamically.\n\n"
+            "STATEFUL & BACKGROUND TOOLS:\n"
+            "- Background operations MUST print real-time diagnostic lines to stdout during execution.\n"
+            "- Any tool persisting state to SQLite or JSON MUST provide a --view, --report, or stats subcommand.\n"
+            "- Never make periodic tracking flags globally required if they block standalone admin commands.\n\n"
+            "BOUNDARY CONDITIONS:\n"
+            "- All numeric inputs must be validated against realistic min/max before use."
+        )),
         HumanMessage(content=(
             f"Research the core requirements for: {state['topic']}. "
             f"{graph_guidance}"
@@ -191,7 +248,7 @@ def coder_node(state: NovaState) -> NovaState:
     historical_context = graph_memory.recall_experience(state['topic'])
 
     if retry_count > 0 and last_error:
-        print(f"🔁 Retry attempt {retry_count} — fixing previous execution error.")
+        print(f"🔁 Retry attempt {retry_count} - fixing previous execution error.")
         human_content = (
             f"Using this blueprint:\n\n{state['blueprint']}\n\n"
             f"Here is the previous code attempt that FAILED to run:\n\n{state['code']}\n\n"
@@ -207,18 +264,22 @@ def coder_node(state: NovaState) -> NovaState:
         )
 
     dna_context = project_dna.recall(state['topic'])
+    coder_system_prompt = (
+        "You are a senior Python engineer. Output rules:\n"
+        "- Return ONLY raw Python code. No markdown, no explanation, no preamble.\n"
+        "- Write a SINGLE Python file. Everything must be defined in this one file.\n"
+        "- Only import standard library or well-known third-party packages.\n"
+        f"- {budget_instruction}\n"
+        "- No empty functions, unused imports, or redundant abstractions.\n"
+        "- Use modern Python idioms: comprehensions, walrus operator, ternary where readable.\n"
+        "- Map commands/routes via dict dispatch, not if/else chains.\n"
+        "- Comments only where logic is non-obvious.\n"
+        "- When working with SQLite, always parse date strings explicitly before Python comparison.\n"
+        "- Trace every optional flag mentally before finalizing.\n"
+        f"{dna_context}"
+    )
     messages = [
-        SystemMessage(content=f"""You are a senior Python engineer. Output rules:
-- Return ONLY raw Python code. No markdown, no explanation, no preamble.
-- Write a SINGLE Python file. Do NOT import from local modules (no "from api_client import X", no "from utils import Y"). Everything must be defined in this one file.
-- Only import standard library modules or well-known third-party packages (requests, argparse, etc).
-- {budget_instruction}
-- No empty functions, unused imports, or redundant abstractions.
-- Use modern Python idioms: comprehensions, walrus operator, ternary where readable.
-- Inline validation at point of use.
-- Map commands/routes via dict dispatch, not if/else chains.
-- Comments only where logic is non-obvious.
-- Trace every optional flag mentally before finalizing: no flag combination should produce a silent no-op when the user expects output (e.g. depth=0 disabling all crawling, --dry-run deleting nothing silently.{dna_context}"""),
+        SystemMessage(content=coder_system_prompt),
         HumanMessage(content=human_content)
     ]
     code = call_coder(messages)
@@ -227,6 +288,7 @@ def coder_node(state: NovaState) -> NovaState:
 
 def debug_node(state: NovaState) -> NovaState:
     print("\n🔧 [DEBUGGER] Validating and fixing code...")
+    print(f"🔧 Debugger model: {gemini_llm.model}")
     is_valid, result = validate_code(state['code'])
 
     if is_valid:
@@ -239,7 +301,7 @@ def debug_node(state: NovaState) -> NovaState:
         return {**state, "code": result}
 
     print(f"⚠ Syntax error found: {result}")
-    nex_llm = get_openrouter_llm("nex-agi/nex-n2-pro:free")
+    nex_llm = gemini_llm
     messages = [
         SystemMessage(content="You are a debugging specialist. Fix the syntax error in this code. Return ONLY the corrected raw Python code, no markdown, no explanation."),
         HumanMessage(content=f"Code:\n{state['code']}\n\nError:\n{result}")
@@ -286,7 +348,7 @@ def test_node(state: NovaState) -> NovaState:
                 timeout=15
             )
             if result.returncode == 0:
-                print("✅ Smoke test passed — no import/runtime errors.")
+                print("✅ Smoke test passed - no import/runtime errors.")
                 execution_valid = True
                 error_text = ""
                 break
@@ -357,7 +419,7 @@ def route_after_test(state: NovaState) -> str:
     if state.get("execution_valid"):
         return "reviewer"
     if state.get("retry_count", 0) <= MAX_RETRIES:
-        print(f"🔁 Execution failed — routing back to coder (attempt {state.get('retry_count', 0)}/{MAX_RETRIES}).")
+        print(f"🔁 Execution failed - routing back to coder (attempt {state.get('retry_count', 0)}/{MAX_RETRIES}).")
         return "coder"
     print("⚠ Max retries reached. Sending current code to reviewer despite failure.")
     return "reviewer"
@@ -366,7 +428,30 @@ def reviewer_node(state: NovaState) -> NovaState:
     print("\n🔍 [REVIEWER] Auditing code...")
     prompt = (
         f"You are a principal QA architect. Review this Python script:\n\n{state['code']}\n\n"
-        "Identify bugs, security issues, logic flaws. Write a structured Markdown audit log."
+        "Identify bugs, security issues, logic flaws. Write a structured Markdown audit log.\n\n"
+        "Mandatory checks:\n"
+        "1. CLI args: Does it handle multiple inputs via nargs='+'? Flag if single positional only.\n"
+        "2. CLI simplicity: Does it use standard CLI args first? Flag if config file is mandatory.\n"
+        "3. File handling: Does it append to JSON array safely? Flag any direct w mode overwrites.\n"
+        "4. Limit logic: Is the --limit flag validated strictly before use? Test edge cases (0, 1, max+1).\n"
+        "5. Search ambiguity: Is there a clear separation between Direct Title Lookup and Keyword Search?\n"
+        "6. Stream processing: Does each log line get evaluated ONCE only? Flag duplicate pattern checks.\n"
+        "7. State isolation: Are throttling counters isolated per-line?\n"
+        "8. Feature verification: Cross-check every explicit keyword in topic against code. Flag missing analytical output.\n"
+        "9. UX transparency: For security tools, does output show length, charset size, entropy bits, strength score?\n"
+        "10. Hardcoding check: For time/scheduling tools, are durations overridable via CLI flags?\n"
+        "11. Smart inference: For file format tools, does it infer format from extensions automatically?\n"
+        "12. Subcommand enforcement: For tools with distinct opposing actions, are argparse subcommands used? If boolean flags used, are they in a mutually exclusive group?\n"
+        "13. Telemetry labels: Do metric labels change based on operation direction? Flag if compression labels reused for decompression.\n"
+        "14. Pre-flight validation: For network/API tools, are credentials validated locally BEFORE any HTTP request?\n"
+        "15. Environment fallbacks: Does the tool check environment variables for API keys alongside CLI flags?\n"
+        "16. HTTP error handling: Are status codes (401, 404, 500) caught and shown as user-friendly messages?\n"
+        "17. Argument mapping: For structured config generation, is friendly alias strictly separated from physical address?\n"
+        "18. Regex handling: Does the tool use re.sub() correctly with backreference support? Flag any string slice fallback.\n"
+        "19. Background feedback: Do background operations print real-time status lines to stdout? Flag silent execution.\n"
+        "20. Admin interface: For stateful tools, is there a --view, --report, or stats subcommand?\n"
+        "21. Flag gridlock: Do admin/view commands work independently without requiring tracking flags?\n"
+        "22. Boundary validation: Are all numeric inputs range-checked before processing?"
     )
     audit = call_hf_reviewer(prompt)
     with open(f"runs/{state['run_id']}_audit.md", "w") as f:
@@ -380,7 +465,7 @@ def reviewer_node(state: NovaState) -> NovaState:
         task_prompt=state['topic'],
         goal=state['topic'],
         files_created=files_created,
-        deployment="Local CLI script — no deployment target",
+        deployment="Local CLI script - no deployment target",
         outcome=outcome
     )
 
@@ -421,7 +506,7 @@ def build_graph():
 
 # ── MAIN ──────────────────────────────────────────────
 if __name__ == "__main__":
-    print("\n🚀 [NOVA ENGINE INITIALIZED — LangGraph Mode]")
+    print("\n🚀 [NOVA ENGINE INITIALIZED - LangGraph Mode]")
     init_log_db()
     topic = input("📋 Enter your task: ").strip()
     if not topic:
