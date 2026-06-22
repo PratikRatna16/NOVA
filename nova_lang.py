@@ -5,6 +5,38 @@ import time
 import subprocess
 import re
 import sqlite3
+
+import subprocess
+
+SKILL_PATH = "skills/ui-ux/src/ui-ux-pro-max/scripts/search.py"
+
+WEB_KEYWORDS = [
+    "website", "web", "html", "css", "landing page", "portfolio",
+    "frontend", "ui", "ux", "dashboard", "webpage", "site"
+]
+
+def is_web_task(topic: str) -> bool:
+    topic_lower = topic.lower()
+    return any(kw in topic_lower for kw in WEB_KEYWORDS)
+
+def query_ui_skill(query: str, domain: str) -> str:
+    try:
+        result = subprocess.run(
+            ["python3", SKILL_PATH, query, "--domain", domain],
+            capture_output=True, text=True, timeout=15
+        )
+        return result.stdout.strip()
+    except Exception as e:
+        return f"Skill query failed: {e}"
+
+def get_web_design_context(topic: str) -> str:
+    domains = ["style", "color", "typography", "ux"]
+    results = []
+    for domain in domains:
+        output = query_ui_skill(topic, domain)
+        if output and "Found: 0" not in output:
+            results.append(f"### {domain.upper()} GUIDANCE\n{output}")
+    return "\n\n".join(results)
 from datetime import datetime
 from nova_graph_memory import ExperienceGraph
 graph_memory = ExperienceGraph()
@@ -223,7 +255,8 @@ def researcher_node(state: NovaState) -> NovaState:
             "- Cross-reference final argparse choices against user requirements before finalizing blueprint.\n\n"
             "PATTERN MATCHING INTEGRITY:\n"
             "- Pattern matching and regex tools must evaluate against the COMPLETE target string (e.g. full filename including extension). Never strip extensions or paths before matching unless explicitly instructed.\n"
-            "- If structural splitting is needed for filesystem safety, handle it internally after matching, not before.\n\n"
+            "- If structural splitting is needed for filesystem safety, handle it internally after matching, not before.\n"
+            "- NEVER split filename into .stem or .suffix before matching. Always run regex/pattern logic against the raw .name attribute of the path object.\n\n"
             "STATEFUL & BACKGROUND TOOLS:\n"
             "- Background operations MUST print real-time diagnostic lines to stdout during execution. Use \\r line-clearing updates or progress bars for long-running processes, never silent execution.\n"
             "- Any tool persisting state to SQLite or JSON MUST provide a --view, --report, or stats subcommand.\n"
@@ -275,7 +308,24 @@ def coder_node(state: NovaState) -> NovaState:
         )
 
     dna_context = project_dna.recall(state['topic'])
-    coder_system_prompt = (
+
+    # Web mode detection
+    if is_web_task(state['topic']):
+        print("🌐 [WEB MODE] Querying UI/UX skill...")
+        design_context = get_web_design_context(state['topic'])
+        coder_system_prompt = (
+            "You are a senior frontend developer. Output rules:\n"
+            "- Return ONLY a single complete HTML file with embedded CSS and JS.\n"
+            "- No markdown, no explanation, no preamble.\n"
+            "- Use modern CSS (flexbox, grid, custom properties).\n"
+            "- Make it fully responsive and mobile-first.\n"
+            "- Use smooth animations and transitions.\n"
+            "- No external dependencies unless CDN links are included in the HTML.\n"
+            f"\n\nUI/UX DESIGN INTELLIGENCE:\n{design_context}\n"
+            f"{dna_context}"
+        )
+    else:
+        coder_system_prompt = (
         "You are a senior Python engineer. Output rules:\n"
         "- Return ONLY raw Python code. No markdown, no explanation, no preamble.\n"
         "- Write a SINGLE Python file. Everything must be defined in this one file.\n"
@@ -288,7 +338,7 @@ def coder_node(state: NovaState) -> NovaState:
         "- When working with SQLite, always parse date strings explicitly before Python comparison.\n"
         "- Trace every optional flag mentally before finalizing.\n"
         f"{dna_context}"
-    )
+        )
     messages = [
         SystemMessage(content=coder_system_prompt),
         HumanMessage(content=human_content)
@@ -300,12 +350,18 @@ def coder_node(state: NovaState) -> NovaState:
 def debug_node(state: NovaState) -> NovaState:
     print("\n🔧 [DEBUGGER] Validating and fixing code...")
     print(f"🔧 Debugger model: {gemini_llm.model}")
-    is_valid, result = validate_code(state['code'])
+    if is_web_task(state['topic']):
+        print("✅ Web output - skipping Python syntax check.")
+        with open(f"runs/{state['run_id']}_code.html", "w") as f:
+            f.write(state['code'])
+        with open("system_monitor.py", "w") as f:
+            f.write(state['code'])
+        return {**state, "code": state['code']}
 
     if is_valid:
         print("✅ Code is syntactically valid.")
         _run_meta["syntax_valid"] = True
-        with open(f"runs/{state['run_id']}_code.py",  "w") as f:
+        with open(f"runs/{state['run_id']}_code.py", "w") as f:
             f.write(result)
         with open("system_monitor.py", "w") as f:
             f.write(result)
@@ -336,11 +392,12 @@ def debug_node(state: NovaState) -> NovaState:
         else:
             print(f"⚠ Fix attempt still broken: {final_code}")
             _run_meta["syntax_valid"] = False
-        with open(f"runs/{state['run_id']}_code.py", "w") as f:
-            f.write(final_code)
-        with open("system_monitor.py", "w") as f:
-            f.write(final_code)
-        return {**state, "code": final_code}
+            ext = "html" if is_web_task(state['topic']) else "py"
+            with open(f"runs/{state['run_id']}_code.{ext}", "w") as f:
+                f.write(final_code)
+            with open("system_monitor.py", "w") as f:
+                f.write(final_code)
+            return {**state, "code": final_code}
     except Exception as e:
         print(f"⚠ Debug fix failed: {e}")
         _run_meta["syntax_valid"] = False
@@ -348,6 +405,9 @@ def debug_node(state: NovaState) -> NovaState:
 
 def test_node(state: NovaState) -> NovaState:
     print("\n🧪 [TESTER] Running smoke test...")
+    if is_web_task(state['topic']):
+        print("✅ Web output - skipping Python smoke test.")
+        return {**state, "execution_valid": True}
     execution_valid = False
     error_text = ""
     for attempt in range(2):
@@ -466,7 +526,7 @@ def reviewer_node(state: NovaState) -> NovaState:
         "23. Process persistence: For background daemons/timers, does the tool use proper Linux process detachment or PID lockfile? Flag if background worker dies when main process exits.\n"
         "24. Audio fallbacks: For alarm/alert tools, is terminal bell used as primary signal? Are external audio imports wrapped in try/except?\n"
         "25. Command compliance: Does the generated CLI implement every explicit subcommand from the user prompt? Flag any dropped or swapped commands.\n"
-        "26. Pattern matching integrity: Does regex/pattern tool match against the complete target string? Flag if extensions or paths are stripped before matching.\n"
+        "26. Pattern matching integrity: Does regex/pattern tool match against the complete target string? Flag if extensions or paths are stripped before matching. Explicitly verify no .stem or .suffix variable splitting occurs before pattern evaluation.\n"
         "27. Boundary validation: Are all numeric inputs range-checked before processing?"
     )
     audit = call_hf_reviewer(prompt)
