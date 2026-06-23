@@ -11,8 +11,9 @@ import subprocess
 SKILL_PATH = "skills/ui-ux/src/ui-ux-pro-max/scripts/search.py"
 
 WEB_KEYWORDS = [
-    "website", "web", "html", "css", "landing page", "portfolio",
-    "frontend", "ui", "ux", "dashboard", "webpage", "site"
+    "website", "web", "html", "css", "landing page",
+    "portfolio website", "frontend website", "webpage", "site",
+    "landing page", "web app", "web application"
 ]
 
 def is_web_task(topic: str) -> bool:
@@ -64,6 +65,11 @@ class NovaState(TypedDict):
     last_error: str
     execution_valid: bool
     run_id: str
+    task_type: str
+    html_structure: str
+    css_code: str
+    js_code: str
+    final_html: str
 
 # ── VALIDATION ───────────────────────────────────────
 def validate_code(code: str) -> tuple[bool, str]:
@@ -311,26 +317,7 @@ def coder_node(state: NovaState) -> NovaState:
 
     dna_context = project_dna.recall(state['topic'])
 
-    # Web mode detection
-    if is_web_task(state['topic']):
-        print("🌐 [WEB MODE] Querying UI/UX skill...")
-        design_context = get_web_design_context(state['topic'])
-        print("🌐 [WEB MODE] Using Kimi K2.6 for web generation...")
-        web_llm = get_nvidia_llm("moonshotai/kimi-k2.6")
-        coder_system_prompt = (
-            "You are a senior frontend developer. Output rules:\n"
-            "- Return ONLY a single complete HTML file with embedded CSS and JS.\n"
-            "- No markdown, no explanation, no preamble.\n"
-            "- Use modern CSS (flexbox, grid, custom properties).\n"
-            "- Make it fully responsive and mobile-first.\n"
-            "- Use smooth animations and transitions.\n"
-            "- Do NOT use Tailwind CSS under any circumstances. Write all styles as plain CSS in a <style> tag. Use CSS custom properties, flexbox, grid, and animations natively. No utility class frameworks.\n"
-            "- Do NOT use jsDelivr CDN. Use only cdnjs.cloudflare.com for any libraries if absolutely needed.\n"
-            f"\n\nUI/UX DESIGN INTELLIGENCE:\n{design_context}\n"
-            f"{dna_context}"
-        )
-    else:
-        coder_system_prompt = (
+    coder_system_prompt = (
         "You are a senior Python engineer. Output rules:\n"
         "- Return ONLY raw Python code. No markdown, no explanation, no preamble.\n"
         "- Write a SINGLE Python file. Everything must be defined in this one file.\n"
@@ -348,10 +335,7 @@ def coder_node(state: NovaState) -> NovaState:
         SystemMessage(content=coder_system_prompt),
         HumanMessage(content=human_content)
     ]
-    if is_web_task(state['topic']):
-        code = web_llm.invoke(messages).content
-    else:
-        code = call_coder(messages)
+    code = call_coder(messages)
     print(f"DEBUG: code length = {len(code)} chars")
     return {**state, "code": code}
 
@@ -378,6 +362,7 @@ def debug_node(state: NovaState) -> NovaState:
             f.write(state['code'])
         return {**state, "code": state['code']}
 
+    is_valid, result = validate_code(state['code'])
     if is_valid:
         print("✅ Code is syntactically valid.")
         _run_meta["syntax_valid"] = True
@@ -581,17 +566,231 @@ def reviewer_node(state: NovaState) -> NovaState:
     return {**state, "audit": audit}
 
 # ── GRAPH ─────────────────────────────────────────────
+
+# ── WEB NODES ─────────────────────────────────────────────────────
+
+def web_structure_node(state: NovaState) -> NovaState:
+    print("\n🏗 [WEB STRUCTURE] Building HTML skeleton...")
+    design_context = get_web_design_context(state['topic'])
+    messages = [
+        SystemMessage(content=(
+            "You are a senior HTML architect. Output ONLY raw HTML with NO CSS and NO JavaScript.\n"
+            "- Return only the HTML skeleton with proper semantic structure.\n"
+            "- Use meaningful IDs and classes that CSS and JS will target.\n"
+            "- Include placeholder comments like <!-- STYLE_INJECT --> in <head> and <!-- SCRIPT_INJECT --> before </body>.\n"
+            "- No inline styles. No script tags. Pure structural HTML only.\n"
+            "- Use semantic tags: header, nav, main, section, article, footer.\n"
+            "- Every interactive element must have a unique ID.\n"
+            f"\nDESIGN CONTEXT:\n{design_context}"
+        )),
+        HumanMessage(content=f"Build the complete HTML structure for: {state['blueprint']}")
+    ]
+    web_llm = get_nvidia_llm("moonshotai/kimi-k2.6")
+    html = web_llm.invoke(messages).content.strip()
+    if '<!DOCTYPE' in html:
+        html = html[html.find('<!DOCTYPE'):]
+    elif '<html' in html:
+        html = html[html.find('<html'):]
+    if html.startswith('```'):
+        html = html.split('\n', 1)[1]
+    if html.endswith('```'):
+        html = html.rsplit('```', 1)[0]
+    print(f"DEBUG: HTML structure length = {len(html)} chars")
+    with open(f"runs/{state['run_id']}_structure.html", "w") as f:
+        f.write(html)
+    return {**state, "html_structure": html.strip(), "task_type": "web"}
+
+
+def web_style_node(state: NovaState) -> NovaState:
+    print("\n🎨 [WEB STYLE] Generating CSS...")
+    messages = [
+        SystemMessage(content=(
+            "You are a senior CSS architect. Output ONLY raw CSS code, no HTML, no JS.\n"
+            "- Write comprehensive CSS for the provided HTML structure.\n"
+            "- Use CSS custom properties (variables) for theming.\n"
+            "- Include smooth animations, transitions, hover effects.\n"
+            "- Mobile-first responsive design with media queries.\n"
+            "- Glassmorphism, gradients, and modern visual effects where appropriate.\n"
+            "- Target ONLY the IDs and classes present in the HTML structure provided.\n"
+            "- Include keyframe animations for entrance effects and scroll reveals.\n"
+            "- No external imports. Pure CSS only."
+        )),
+        HumanMessage(content=f"Write complete CSS for this HTML structure:\n\n{state['html_structure']}")
+    ]
+    web_llm = get_nvidia_llm("moonshotai/kimi-k2.6")
+    css = web_llm.invoke(messages).content.strip()
+    if css.startswith('```'):
+        css = css.split('\n', 1)[1]
+    if css.endswith('```'):
+        css = css.rsplit('```', 1)[0]
+    print(f"DEBUG: CSS length = {len(css)} chars")
+    with open(f"runs/{state['run_id']}_style.css", "w") as f:
+        f.write(css)
+    return {**state, "css_code": css.strip()}
+
+
+def web_logic_node(state: NovaState) -> NovaState:
+    print("\n⚡ [WEB LOGIC] Generating JavaScript...")
+    messages = [
+        SystemMessage(content=(
+            "You are a senior JavaScript engineer. Output ONLY raw JavaScript, no HTML, no CSS.\n"
+            "- Write complete vanilla JS for all interactivity and animations.\n"
+            "- Target ONLY element IDs and classes that exist in the HTML structure provided.\n"
+            "- Implement: smooth scroll, scroll reveal animations, typing effects, canvas animations if needed.\n"
+            "- All DOM queries must use IDs/classes from the HTML structure — never assume element names.\n"
+            "- Always wrap DOM queries in DOMContentLoaded event listener.\n"
+            "- Implement real-time data updates with setInterval where needed.\n"
+            "- Handle all interactive elements: buttons, forms, navigation, modals.\n"
+            "- No external libraries. Pure vanilla JS only.\n"
+            "- Add error handling for all DOM queries — check element exists before using it."
+        )),
+        HumanMessage(content=(
+            f"Write complete JavaScript for this HTML structure:\n\n{state['html_structure']}\n\n"
+            f"The CSS classes and animations defined are:\n\n{state['css_code'][:2000]}..."
+        ))
+    ]
+    web_llm = get_nvidia_llm("moonshotai/kimi-k2.6")
+    js = web_llm.invoke(messages).content.strip()
+    if js.startswith('```'):
+        js = js.split('\n', 1)[1]
+    if js.endswith('```'):
+        js = js.rsplit('```', 1)[0]
+    print(f"DEBUG: JS length = {len(js)} chars")
+    with open(f"runs/{state['run_id']}_logic.js", "w") as f:
+        f.write(js)
+    return {**state, "js_code": js.strip()}
+
+
+def web_assembler_node(state: NovaState) -> NovaState:
+    print("\n🔧 [WEB ASSEMBLER] Combining HTML + CSS + JS...")
+    html = state['html_structure']
+    css = state['css_code']
+    js = state['js_code']
+
+    # Inject CSS
+    style_tag = f"<style>\n{css}\n</style>"
+    if '<!-- STYLE_INJECT -->' in html:
+        html = html.replace('<!-- STYLE_INJECT -->', style_tag)
+    else:
+        html = html.replace('</head>', f"{style_tag}\n</head>")
+
+    # Inject JS
+    script_tag = f"<script>\n{js}\n</script>"
+    if '<!-- SCRIPT_INJECT -->' in html:
+        html = html.replace('<!-- SCRIPT_INJECT -->', script_tag)
+    else:
+        html = html.replace('</body>', f"{script_tag}\n</body>")
+
+    print(f"DEBUG: Final HTML length = {len(html)} chars")
+    with open(f"runs/{state['run_id']}_code.html", "w") as f:
+        f.write(html)
+    with open("system_monitor.py", "w") as f:
+        f.write(html)
+    return {**state, "final_html": html, "code": html}
+
+
+def web_debugger_node(state: NovaState) -> NovaState:
+    print("\n🔍 [WEB DEBUGGER] Validating HTML/CSS/JS consistency...")
+    messages = [
+        SystemMessage(content=(
+            "You are a browser debugging expert. Analyze the provided HTML, CSS, and JS for consistency issues.\n"
+            "Check for:\n"
+            "1. JS references to IDs/classes that don't exist in HTML\n"
+            "2. CSS selectors targeting non-existent elements\n"
+            "3. Undefined variables in JS\n"
+            "4. Missing event listeners for interactive elements\n"
+            "5. Canvas/animation code that won't execute\n"
+            "If issues found, return the COMPLETE FIXED HTML file with CSS and JS embedded.\n"
+            "If no issues, return the HTML unchanged.\n"
+            "Return ONLY raw HTML, no explanation."
+        )),
+        HumanMessage(content=(
+            f"HTML Structure:\n{state['html_structure'][:3000]}\n\n"
+            f"CSS (first 2000 chars):\n{state['css_code'][:2000]}\n\n"
+            f"JavaScript (first 3000 chars):\n{state['js_code'][:3000]}\n\n"
+            f"Full assembled HTML:\n{state['final_html'][:5000]}"
+        ))
+    ]
+    try:
+        fixed = gemini_llm.invoke(messages).content.strip()
+    except Exception as e:
+        print(f"⚠ Web debugger failed: {e} — skipping, using assembled HTML")
+        return state
+    if '<!DOCTYPE' in fixed:
+        fixed = fixed[fixed.find('<!DOCTYPE'):]
+    if fixed.startswith('```'):
+        fixed = fixed.split('\n', 1)[1]
+    if fixed.endswith('```'):
+        fixed = fixed.rsplit('```', 1)[0]
+    if len(fixed) > 1000:
+        with open(f"runs/{state['run_id']}_code.html", "w") as f:
+            f.write(fixed)
+        print("✅ Web debugger applied fixes.")
+        return {**state, "final_html": fixed, "code": fixed}
+    print("✅ Web debugger: no critical issues found.")
+    return state
+
+
+def web_reviewer_node(state: NovaState) -> NovaState:
+    print("\n🔍 [WEB REVIEWER] Auditing final output...")
+    prompt = (
+        f"You are a senior web QA engineer. Review this complete HTML/CSS/JS file:\n\n"
+        f"{state['final_html'][:6000]}\n\n"
+        "Check:\n"
+        "1. All sections render with visible content\n"
+        "2. Navigation links point to existing section IDs\n"
+        "3. All interactive elements have JS handlers\n"
+        "4. Animations and transitions are defined\n"
+        "5. Mobile responsiveness\n"
+        "6. No broken references between HTML, CSS, JS\n"
+        "Write a structured Markdown audit report."
+    )
+    try:
+        audit = gemini_llm.invoke([HumanMessage(content=prompt)]).content
+    except Exception as e:
+        print(f"⚠ Web reviewer failed: {e} — skipping audit")
+        audit = "Web reviewer unavailable - Gemini 503"
+        with open(f"runs/{state['run_id']}_web_audit.md", "w") as f:
+            f.write(audit)
+        return {**state, "audit": audit}
+    with open(f"runs/{state['run_id']}_web_audit.md", "w") as f:
+        f.write(audit)
+    print("✅ Web audit written.")
+    return {**state, "audit": audit}
+
+
+def route_after_researcher(state: NovaState) -> str:
+    if is_web_task(state['topic']):
+        return "web_structure"
+    return "coder"
+
 def build_graph():
     graph = StateGraph(NovaState)
+    # CLI nodes
     graph.add_node("researcher", researcher_node)
     graph.add_node("coder", coder_node)
     graph.add_node("debugger", debug_node)
     graph.add_node("tester", test_node)
     graph.add_node("reviewer", reviewer_node)
+    # Web nodes
+    graph.add_node("web_structure", web_structure_node)
+    graph.add_node("web_style", web_style_node)
+    graph.add_node("web_logic", web_logic_node)
+    graph.add_node("web_assembler", web_assembler_node)
+    graph.add_node("web_debugger", web_debugger_node)
+    graph.add_node("web_reviewer", web_reviewer_node)
     graph.set_entry_point("researcher")
-    graph.add_edge("researcher", "coder")
+    # CLI edges
+    graph.add_conditional_edges("researcher", route_after_researcher, {"coder": "coder", "web_structure": "web_structure"})
     graph.add_edge("coder", "debugger")
     graph.add_edge("debugger", "tester")
+    # Web edges
+    graph.add_edge("web_structure", "web_style")
+    graph.add_edge("web_style", "web_logic")
+    graph.add_edge("web_logic", "web_assembler")
+    graph.add_edge("web_assembler", "web_debugger")
+    graph.add_edge("web_debugger", "web_reviewer")
+    graph.add_edge("web_reviewer", END)
     graph.add_conditional_edges(
         "tester",
         route_after_test,
@@ -615,7 +814,8 @@ if __name__ == "__main__":
         result = pipeline.invoke({
             "topic": topic, "blueprint": "", "code": "", "audit": "",
             "retry_count": 0, "last_error": "", "execution_valid": False,
-            "run_id": run_id
+            "run_id": run_id, "task_type": "",
+            "html_structure": "", "css_code": "", "js_code": "", "final_html": ""
         })
         print("\n" + "="*60)
         print("✅ Pipeline completed.")
