@@ -81,7 +81,7 @@ def validate_code(code: str) -> tuple[bool, str]:
 # ── COMPLEXITY ───────────────────────────────────────
 def estimate_complexity(topic: str) -> str:
     word_count = len(topic.split())
-    complex_keywords = ["database", "auth", "api", "multi", "server", "sqlite", "encryption"]
+    complex_keywords = ["database", "auth", "api", "multi", "server", "sqlite", "encryption", "website"]
     if word_count > 15 or any(k in topic.lower() for k in complex_keywords):
         return "complex"
     elif word_count > 8:
@@ -104,23 +104,25 @@ groq_llm = ChatGroq(
     api_key=os.environ.get("GROQ_API_KEY")
 )
 
-def get_openrouter_llm(model_id):
+def get_openrouter_llm(model_id, max_tokens=8000):
     return ChatOpenAI(
         model=model_id,
         api_key=os.environ.get("OPENROUTER_API_KEY"),
-        base_url="https://openrouter.ai/api/v1"
+        base_url="https://openrouter.ai/api/v1",
+        max_tokens=max_tokens
     )
 
-def get_nvidia_llm(model_id):
+def get_nvidia_llm(model_id, max_tokens=8000):
     return ChatOpenAI(
         model=model_id,
         api_key=os.environ.get("NVIDIA_API_KEY"),
-        base_url="https://integrate.api.nvidia.com/v1"
+        base_url="https://integrate.api.nvidia.com/v1",
+        max_tokens=max_tokens
     )
 
 CODER_MODELS = [
     "poolside/laguna-m.1:free",
-    "moonshotai/kimi-k2-6",
+    "moonshotai/kimi-k2.6",
     "google/gemma-4-31b-it:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
 ]
@@ -185,8 +187,8 @@ def call_coder(messages):
             print(f"⚠ {model_id} failed: {e} -> trying next")
     try:
         print("🖥 Trying NVIDIA fallback: kimi-k2-6")
-        response = get_nvidia_llm("moonshotai/kimi-k2-6").invoke(messages)
-        _run_meta["model_used"] = "moonshotai/kimi-k2-6-nvidia"
+        response = get_nvidia_llm("moonshotai/kimi-k2.6").invoke(messages)
+        _run_meta["model_used"] = "moonshotai/kimi-k2.6-nvidia"
         return response.content
     except Exception as e:
         print(f"⚠ NVIDIA fallback failed: {e} -> falling back to Groq")
@@ -313,6 +315,8 @@ def coder_node(state: NovaState) -> NovaState:
     if is_web_task(state['topic']):
         print("🌐 [WEB MODE] Querying UI/UX skill...")
         design_context = get_web_design_context(state['topic'])
+        print("🌐 [WEB MODE] Using Kimi K2.6 for web generation...")
+        web_llm = get_nvidia_llm("moonshotai/kimi-k2.6")
         coder_system_prompt = (
             "You are a senior frontend developer. Output rules:\n"
             "- Return ONLY a single complete HTML file with embedded CSS and JS.\n"
@@ -320,7 +324,8 @@ def coder_node(state: NovaState) -> NovaState:
             "- Use modern CSS (flexbox, grid, custom properties).\n"
             "- Make it fully responsive and mobile-first.\n"
             "- Use smooth animations and transitions.\n"
-            "- No external dependencies unless CDN links are included in the HTML.\n"
+            "- Do NOT use Tailwind CSS under any circumstances. Write all styles as plain CSS in a <style> tag. Use CSS custom properties, flexbox, grid, and animations natively. No utility class frameworks.\n"
+            "- Do NOT use jsDelivr CDN. Use only cdnjs.cloudflare.com for any libraries if absolutely needed.\n"
             f"\n\nUI/UX DESIGN INTELLIGENCE:\n{design_context}\n"
             f"{dna_context}"
         )
@@ -343,7 +348,10 @@ def coder_node(state: NovaState) -> NovaState:
         SystemMessage(content=coder_system_prompt),
         HumanMessage(content=human_content)
     ]
-    code = call_coder(messages)
+    if is_web_task(state['topic']):
+        code = web_llm.invoke(messages).content
+    else:
+        code = call_coder(messages)
     print(f"DEBUG: code length = {len(code)} chars")
     return {**state, "code": code}
 
@@ -352,8 +360,20 @@ def debug_node(state: NovaState) -> NovaState:
     print(f"🔧 Debugger model: {gemini_llm.model}")
     if is_web_task(state['topic']):
         print("✅ Web output - skipping Python syntax check.")
+        # Strip markdown fences if coder wrapped output
+        clean_code = state['code'].strip()
+        # Remove any lines before <!DOCTYPE or <html
+        if '<!DOCTYPE' in clean_code:
+            clean_code = clean_code[clean_code.find('<!DOCTYPE'):]
+        elif '<html' in clean_code:
+            clean_code = clean_code[clean_code.find('<html'):]
+        if clean_code.startswith("```"):
+            clean_code = clean_code.split("\n", 1)[1]
+        if clean_code.endswith("```"):
+            clean_code = clean_code.rsplit("```", 1)[0]
+        clean_code = clean_code.strip()
         with open(f"runs/{state['run_id']}_code.html", "w") as f:
-            f.write(state['code'])
+            f.write(clean_code)
         with open("system_monitor.py", "w") as f:
             f.write(state['code'])
         return {**state, "code": state['code']}
