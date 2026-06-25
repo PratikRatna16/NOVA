@@ -526,25 +526,19 @@ def web_structure_node(state: NovaState) -> NovaState:
             "- No inline styles. No script tags. Pure structural HTML only.\n"
             "- Use semantic tags: header, nav, main, section, article, footer.\n"
             "- Every interactive element must have a unique ID.\n"
-            "- CONTENT RULES: Use ONLY content explicitly stated in the blueprint below. "
-            "Do NOT invent names, projects, skills, experience, testimonials, stats, or any other content. "
-            "Use placeholder text like [NAME], [PROJECT_TITLE], [SKILL] where real content isn't specified. "
-            "Never fabricate realistic-looking fake data.\n"
             f"\nDESIGN CONTEXT:\n{design_context}"
         )),
         HumanMessage(content=f"Build the complete HTML structure for: {state['blueprint']}")
     ]
     html = try_chain(get_web_structure_chain(), messages, "web_structure")
-    lines = html.split('\n')
-    if lines[0].strip().startswith('`'):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == '```':
-        lines = lines[:-1]
-    html = '\n'.join(lines)
     if '<!DOCTYPE' in html:
         html = html[html.find('<!DOCTYPE'):]
     elif '<html' in html:
         html = html[html.find('<html'):]
+    if html.startswith('```'):
+        html = html.split('\n', 1)[1]
+    if html.endswith('```'):
+        html = html.rsplit('```', 1)[0]
     print(f"DEBUG: HTML structure length = {len(html)} chars")
     with open(f"runs/{state['run_id']}_structure.html", "w") as f:
         f.write(html)
@@ -563,16 +557,15 @@ def web_style_node(state: NovaState) -> NovaState:
             "- Glassmorphism, gradients, and modern visual effects where appropriate.\n"
             "- Target ONLY the IDs and classes present in the HTML structure provided.\n"
             "- Include keyframe animations for entrance effects and scroll reveals.\n"
-            "- No external imports. Pure CSS only.\n"
-            "- Do NOT generate any content, copy, or text. CSS only — no comments containing fake names or data."
+            "- No external imports. Pure CSS only."
         )),
         HumanMessage(content=f"Write complete CSS for this HTML structure:\n\n{state['html_structure']}")
     ]
     css = try_chain(get_web_style_chain(), messages, "web_style")
-    if '\n' in css and css.split('\n')[0].strip().startswith('```'):
-        css = '\n'.join(css.split('\n')[1:])
-    if css.strip().endswith('```'):
-        css = css.strip()[:-3].strip()
+    if css.startswith('```'):
+        css = css.split('\n', 1)[1]
+    if css.endswith('```'):
+        css = css.rsplit('```', 1)[0]
     print(f"DEBUG: CSS length = {len(css)} chars")
     with open(f"runs/{state['run_id']}_style.css", "w") as f:
         f.write(css)
@@ -592,9 +585,7 @@ def web_logic_node(state: NovaState) -> NovaState:
             "- Implement real-time data updates with setInterval where needed.\n"
             "- Handle all interactive elements: buttons, forms, navigation, modals.\n"
             "- No external libraries. Pure vanilla JS only.\n"
-            "- Add error handling for all DOM queries — check element exists before using it.\n"
-            "- CONTENT RULES: Do NOT hardcode any names, project titles, skills, stats, or realistic-looking fake data in JS strings or arrays. "
-            "If dynamic content is needed, read it from the DOM (from HTML placeholders) — never generate it in JS."
+            "- Add error handling for all DOM queries — check element exists before using it."
         )),
         HumanMessage(content=(
             f"Write complete JavaScript for this HTML structure:\n\n{state['html_structure']}\n\n"
@@ -602,10 +593,10 @@ def web_logic_node(state: NovaState) -> NovaState:
         ))
     ]
     js = try_chain(get_web_logic_chain(), messages, "web_logic")
-    if '\n' in js and js.split('\n')[0].strip().startswith('```'):
-        js = '\n'.join(js.split('\n')[1:])
-    if js.strip().endswith('```'):
-        js = js.strip()[:-3].strip()
+    if js.startswith('```'):
+        js = js.split('\n', 1)[1]
+    if js.endswith('```'):
+        js = js.rsplit('```', 1)[0]
     print(f"DEBUG: JS length = {len(js)} chars")
     with open(f"runs/{state['run_id']}_logic.js", "w") as f:
         f.write(js)
@@ -615,7 +606,6 @@ def web_logic_node(state: NovaState) -> NovaState:
 def web_assembler_node(state: NovaState) -> NovaState:
     print("\n🔧 [WEB ASSEMBLER] Combining HTML + CSS + JS...")
     html = state['html_structure']
-    print(f"DEBUG ASSEMBLER: html_structure length = {len(html)} chars")
     css = state['css_code']
     js = state['js_code']
 
@@ -624,14 +614,14 @@ def web_assembler_node(state: NovaState) -> NovaState:
     if '<!-- STYLE_INJECT -->' in html:
         html = html.replace('<!-- STYLE_INJECT -->', style_tag)
     else:
-        html = html.replace('</head>', f"{style_tag}\n</head>", 1)
+        html = html.replace('</head>', f"{style_tag}\n</head>")
 
     # Inject JS
     script_tag = f"<script>\n{js}\n</script>"
     if '<!-- SCRIPT_INJECT -->' in html:
         html = html.replace('<!-- SCRIPT_INJECT -->', script_tag)
     else:
-        html = html.replace('</body>', f"{script_tag}\n</body>", 1)
+        html = html.replace('</body>', f"{script_tag}\n</body>")
 
     print(f"DEBUG: Final HTML length = {len(html)} chars")
     with open(f"runs/{state['run_id']}_code.html", "w") as f:
@@ -693,7 +683,6 @@ def web_reviewer_node(state: NovaState) -> NovaState:
     prompt = (
         f"You are a senior web QA engineer. Review this complete HTML/CSS/JS file:\n\n"
         f"{state['final_html'][:6000]}\n\n"
-        f"ORIGINAL USER REQUEST: {state['topic']}\n\n"
         "Check:\n"
         "1. All sections render with visible content\n"
         "2. Navigation links point to existing section IDs\n"
@@ -701,11 +690,6 @@ def web_reviewer_node(state: NovaState) -> NovaState:
         "4. Animations and transitions are defined\n"
         "5. Mobile responsiveness\n"
         "6. No broken references between HTML, CSS, JS\n"
-        "7. SEMANTIC ALIGNMENT: Does the output match what the user actually asked for? "
-        "List every feature/section explicitly requested in the original user request and confirm "
-        "whether it is present in the output. Flag anything requested but missing or misimplemented.\n"
-        "8. PLACEHOLDER CHECK: Flag any [NAME], [PROJECT_TITLE], [SKILL] or similar placeholders "
-        "still present in the output that the user needs to fill in.\n"
         "Write a structured Markdown audit report."
     )
     try:
