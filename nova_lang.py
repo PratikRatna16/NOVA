@@ -666,11 +666,44 @@ def web_debugger_node(state: NovaState) -> NovaState:
         ))
     ]
     try:
-        # 3-stage debugger: P1=JS logic, P2=HTML/CSS consistency, Final=combined review
-        p1_result = try_chain(get_web_debugger_p1_chain(), messages, "web_debugger_p1")
-        p2_messages = messages + [HumanMessage(content=f"P1 JS audit result:\n{p1_result}\nNow check HTML/CSS consistency.")]
+        # Stage P1: JS logic validation only
+        p1_system = SystemMessage(content=(
+            "You are a JavaScript debugging specialist. Your job is ONLY to audit JS logic.\n"
+            "Check ONLY: undefined variables, missing event listeners, broken DOM queries, "
+            "JS syntax errors, functions called before definition, missing null checks.\n"
+            "Do NOT audit HTML structure or CSS — that is handled by a separate specialist.\n"
+            "Output a concise bullet-point audit of JS issues found. If none, say PASS."
+        ))
+        p1_messages = [p1_system] + messages
+        p1_result = try_chain(get_web_debugger_p1_chain(), p1_messages, "web_debugger_p1")
+        print(f"✅ P1 JS audit complete")
+
+        # Stage P2: HTML/CSS consistency only, aware of P1 findings
+        p2_system = SystemMessage(content=(
+            "You are an HTML/CSS debugging specialist. Your job is ONLY to audit HTML structure and CSS.\n"
+            "Check ONLY: CSS selectors targeting non-existent elements, missing classes in HTML, "
+            "broken grid/flex layout, media query issues, missing CSS variables.\n"
+            "Do NOT re-check JS logic — P1 already audited that and found:\n"
+            f"{p1_result[:500]}\n\n"
+            "Focus only on HTML/CSS issues not covered by P1.\n"
+            "Output a concise bullet-point audit of HTML/CSS issues found. If none, say PASS."
+        ))
+        p2_messages = [p2_system] + messages
         p2_result = try_chain(get_web_debugger_p2_chain(), p2_messages, "web_debugger_p2")
-        final_messages = messages + [HumanMessage(content=f"P1 JS audit:\n{p1_result}\n\nP2 HTML/CSS audit:\n{p2_result}\n\nNow return the complete fixed HTML.")]
+        print(f"✅ P2 HTML/CSS audit complete")
+
+        # Final stage: fix all issues from P1 and P2, return complete HTML
+        final_system = SystemMessage(content=(
+            "You are a senior web engineer doing final integration review.\n"
+            "P1 JS audit found:\n"
+            f"{p1_result[:500]}\n\n"
+            "P2 HTML/CSS audit found:\n"
+            f"{p2_result[:500]}\n\n"
+            "Your job: fix ALL remaining issues from both audits in the assembled HTML below.\n"
+            "Return the COMPLETE fixed HTML file with all CSS and JS embedded.\n"
+            "Return ONLY raw HTML, no explanation, no markdown fences."
+        ))
+        final_messages = [final_system] + messages
         fixed = try_chain(get_web_debugger_final_chain(), final_messages, "web_debugger_final")
     except Exception as e:
         print(f"⚠ Web debugger failed: {e} — skipping, using assembled HTML")

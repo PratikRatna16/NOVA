@@ -33,6 +33,7 @@ their design target. Watch for weird output, haven't confirmed it breaks.
 import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
 
@@ -87,6 +88,14 @@ def openrouter(model, temperature=0.6, max_tokens=4096):
 def groq(model, temperature=0.6, max_tokens=4096):
     return ChatOpenAI(model=model, api_key=os.environ.get("GROQ_API_KEY", ""),
                       base_url=GROQ_BASE, temperature=temperature, max_tokens=max_tokens)
+
+def gemini(model="gemini-2.0-flash", temperature=0.6, max_tokens=4096):
+    return ChatGoogleGenerativeAI(
+        model=model,
+        google_api_key=os.environ.get("GEMINI_API_KEY", ""),
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
 def ollama(model, temperature=0.6, max_tokens=4096):
     return ChatOpenAI(model=model, api_key="ollama",
@@ -159,25 +168,43 @@ def get_web_logic_chain():
 # original "P1 finds JS bugs, P2 finds HTML/CSS bugs, Final reviews both" plan.
 
 def get_web_debugger_p1_chain():
-    """JS logic validation."""
+    """
+    P1: JS logic validation ONLY.
+    Checks: undefined variables, missing event listeners, broken DOM queries,
+    JS errors that would prevent execution. Does NOT check HTML structure or CSS.
+    """
     return [
-        (nvidia,  M_DEEPSEEK_V4_NVIDIA, "DeepSeek V4 Flash (NVIDIA route)"),   # CONFIRMED LIVE
-        (nvidia,  M_MINIMAX_M27,        "MiniMax M2.7 (NVIDIA)"),              # CONFIRMED LIVE
+        (nvidia,      M_MINIMAX_M27,        "MiniMax M2.7 (NVIDIA) - P1 JS"),
+        (nvidia,      M_KIMI_K2,            "Kimi K2.6 (NVIDIA) - P1 JS"),
+        (openrouter,  M_GEMMA_4,            "Gemma 4 (OR) - P1 JS"),
+        (nvidia,      M_DEEPSEEK_V4_NVIDIA, "DeepSeek V4 Flash (NVIDIA) - P1 JS"),  # 504s frequently
     ]
 
 def get_web_debugger_p2_chain():
-    """HTML/CSS consistency check."""
+    """
+    P2: HTML/CSS consistency ONLY.
+    Checks: CSS selectors targeting non-existent elements, missing classes,
+    broken layout rules, media query issues. Does NOT re-check JS logic.
+    Receives P1 JS audit summary to know what JS issues were already found.
+    """
     return [
-        (openrouter, M_GEMMA_4,    "Gemma 4 (OR, CONFIRMED LIVE)"),
-        (nvidia,     M_MINIMAX_M27, "MiniMax M2.7 (NVIDIA)"),
+        (openrouter,  M_GEMMA_4,            "Gemma 4 (OR) - P2 HTML/CSS"),
+        (nvidia,      M_MINIMAX_M27,        "MiniMax M2.7 (NVIDIA) - P2 HTML/CSS"),
+        (nvidia,      M_KIMI_K2,            "Kimi K2.6 (NVIDIA) - P2 HTML/CSS"),
     ]
 
 def get_web_debugger_final_chain():
-    """Reviews both P1 and P2 output together."""
+    """
+    Final: Cross-component integration review.
+    Receives P1 JS audit + P2 HTML/CSS audit summaries.
+    Only fixes remaining issues not already addressed by P1/P2.
+    Returns complete fixed HTML.
+    """
     return [
-        (nvidia,      M_LLAMA_NEMOTRON_49B_V15, "Llama-3.3-Nemotron-Super-49B-v1.5 (NVIDIA)"),  # CONFIRMED LIVE
-        (nvidia,      M_NEMOTRON_ULTRA,          "Nemotron Ultra 550B (NVIDIA)"),                 # 504s frequently
-        (openrouter,  M_NEMOTRON_ULTRA_OR,       "Nemotron Ultra 550B (OR route)"),               # 504s consistently
+        (nvidia,      M_LLAMA_NEMOTRON_49B_V15, "Nemotron-Super-49B (NVIDIA) - Final"),
+        (nvidia,      M_QWEN35_397B,            "Qwen3.5-397B (NVIDIA) - Final"),
+        (nvidia,      M_MINIMAX_M27,            "MiniMax M2.7 (NVIDIA) - Final"),
+        (nvidia,      M_NEMOTRON_ULTRA,         "Nemotron Ultra 550B (NVIDIA) - Final"),  # 504s frequently
     ]
 
 def get_web_reviewer_chain():
