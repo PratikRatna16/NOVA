@@ -569,10 +569,9 @@ def web_style_node(state: NovaState) -> NovaState:
         HumanMessage(content=f"Write complete CSS for this HTML structure:\n\n{state['html_structure']}")
     ]
     css = try_chain(get_web_style_chain(), messages, "web_style")
-    if '\n' in css and css.split('\n')[0].strip().startswith('```'):
-        css = '\n'.join(css.split('\n')[1:])
-    if css.strip().endswith('```'):
-        css = css.strip()[:-3].strip()
+    css_lines = css.split('\n')
+    css_lines = [l for l in css_lines if not l.strip().startswith('```')]
+    css = '\n'.join(css_lines).strip()
     print(f"DEBUG: CSS length = {len(css)} chars")
     with open(f"runs/{state['run_id']}_style.css", "w") as f:
         f.write(css)
@@ -605,10 +604,9 @@ def web_logic_node(state: NovaState) -> NovaState:
     if not js.strip():
         print("⚠ JS empty on first attempt — retrying web_logic...")
         js = try_chain(get_web_logic_chain(), messages, "web_logic_retry")
-    if '\n' in js and js.split('\n')[0].strip().startswith('```'):
-        js = '\n'.join(js.split('\n')[1:])
-    if js.strip().endswith('```'):
-        js = js.strip()[:-3].strip()
+    js_lines = js.split('\n')
+    js_lines = [l for l in js_lines if not l.strip().startswith('```')]
+    js = '\n'.join(js_lines).strip()
     print(f"DEBUG: JS length = {len(js)} chars")
     with open(f"runs/{state['run_id']}_logic.js", "w") as f:
         f.write(js)
@@ -622,17 +620,18 @@ def web_assembler_node(state: NovaState) -> NovaState:
     css = state['css_code']
     js = state['js_code']
 
-    # Inject CSS
+    # Inject CSS — use placeholder if present, else fallback to </head>
     style_tag = f"<style>\n{css}\n</style>"
     if '<!-- STYLE_INJECT -->' in html:
-        html = html.replace('<!-- STYLE_INJECT -->', style_tag)
+        html = html.replace('<!-- STYLE_INJECT -->', style_tag, 1)
+        html = html.replace('</head>', '</head>', 1)  # neutralize any stray </head> duplication
     else:
         html = html.replace('</head>', f"{style_tag}\n</head>", 1)
 
-    # Inject JS
+    # Inject JS — use placeholder if present, else fallback to </body>
     script_tag = f"<script>\n{js}\n</script>"
     if '<!-- SCRIPT_INJECT -->' in html:
-        html = html.replace('<!-- SCRIPT_INJECT -->', script_tag)
+        html = html.replace('<!-- SCRIPT_INJECT -->', script_tag, 1)
     else:
         html = html.replace('</body>', f"{script_tag}\n</body>", 1)
 
@@ -682,12 +681,12 @@ def web_debugger_node(state: NovaState) -> NovaState:
         fixed = fixed.split('\n', 1)[1]
     if fixed.endswith('```'):
         fixed = fixed.rsplit('```', 1)[0]
-    if len(fixed) > 1000:
+    if len(fixed) > len(state['final_html']) * 0.7:
         with open(f"runs/{state['run_id']}_code.html", "w") as f:
             f.write(fixed)
         print("✅ Web debugger applied fixes.")
         return {**state, "final_html": fixed, "code": fixed}
-    print("✅ Web debugger: no critical issues found.")
+    print(f"⚠ Web debugger output too small ({len(fixed)} vs {len(state['final_html'])}) — keeping assembled HTML.")
     return state
 
 
