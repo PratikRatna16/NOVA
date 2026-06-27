@@ -566,7 +566,16 @@ def web_style_node(state: NovaState) -> NovaState:
             "- No external imports. Pure CSS only.\n"
             "- Do NOT generate any content, copy, or text. CSS only — no comments containing fake names or data."
         )),
-        HumanMessage(content=f"Write complete CSS for this HTML structure:\n\n{state['html_structure']}")
+        HumanMessage(content=(
+            f"Write complete CSS for this HTML structure:\n\n{state['html_structure']}\n\n"
+            "MANDATORY RULES:\n"
+            "1. Write CSS rules for EVERY class present in the HTML. Do not skip any.\n"
+            "2. Card elements (any class containing 'card', 'item', 'tile') MUST have: background, border-radius, padding, and box-shadow.\n"
+            "3. Grid containers (any class containing 'grid') MUST have: display:grid, grid-template-columns, gap.\n"
+            "4. ALL layouts must work WITHOUT JavaScript — use display:grid and display:flex directly, never hide elements with opacity:0 or visibility:hidden.\n"
+            "5. Every section MUST have padding and a visible background color.\n"
+            "6. Carousel/slider containers MUST have overflow:hidden and their tracks display:flex.\n"
+        ))
     ]
     css = try_chain(get_web_style_chain(), messages, "web_style")
     css_lines = css.split('\n')
