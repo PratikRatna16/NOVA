@@ -602,6 +602,9 @@ def web_logic_node(state: NovaState) -> NovaState:
         ))
     ]
     js = try_chain(get_web_logic_chain(), messages, "web_logic")
+    if not js.strip():
+        print("⚠ JS empty on first attempt — retrying web_logic...")
+        js = try_chain(get_web_logic_chain(), messages, "web_logic_retry")
     if '\n' in js and js.split('\n')[0].strip().startswith('```'):
         js = '\n'.join(js.split('\n')[1:])
     if js.strip().endswith('```'):

@@ -175,9 +175,9 @@ def get_web_debugger_p2_chain():
 def get_web_debugger_final_chain():
     """Reviews both P1 and P2 output together."""
     return [
-        (nvidia,      M_NEMOTRON_ULTRA,        "Nemotron Ultra 550B (NVIDIA)"),
-        (openrouter,  M_NEMOTRON_ULTRA_OR,     "Nemotron Ultra 550B (OR route)"),
         (nvidia,      M_LLAMA_NEMOTRON_49B_V15, "Llama-3.3-Nemotron-Super-49B-v1.5 (NVIDIA)"),  # CONFIRMED LIVE
+        (nvidia,      M_NEMOTRON_ULTRA,          "Nemotron Ultra 550B (NVIDIA)"),                 # 504s frequently
+        (openrouter,  M_NEMOTRON_ULTRA_OR,       "Nemotron Ultra 550B (OR route)"),               # 504s consistently
     ]
 
 def get_web_reviewer_chain():
