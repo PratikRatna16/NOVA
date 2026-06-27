@@ -568,13 +568,15 @@ def web_style_node(state: NovaState) -> NovaState:
         )),
         HumanMessage(content=(
             f"Write complete CSS for this HTML structure:\n\n{state['html_structure']}\n\n"
-            "MANDATORY RULES:\n"
-            "1. Write CSS rules for EVERY class present in the HTML. Do not skip any.\n"
-            "2. Card elements (any class containing 'card', 'item', 'tile') MUST have: background, border-radius, padding, and box-shadow.\n"
-            "3. Grid containers (any class containing 'grid') MUST have: display:grid, grid-template-columns, gap.\n"
-            "4. ALL layouts must work WITHOUT JavaScript — use display:grid and display:flex directly, never hide elements with opacity:0 or visibility:hidden.\n"
-            "5. Every section MUST have padding and a visible background color.\n"
-            "6. Carousel/slider containers MUST have overflow:hidden and their tracks display:flex.\n"
+            "MANDATORY RULES — failure to follow any of these is a critical error:\n"
+            "1. Write CSS rules for EVERY class and ID present in the HTML. Do not skip any.\n"
+            "2. Any class containing 'card', 'item', 'tile' MUST have: background, border-radius, padding, box-shadow.\n"
+            "3. Any class containing 'grid' MUST have: display:grid, grid-template-columns, gap. Pricing grids use repeat(3,1fr). Feature grids use repeat(3,1fr).\n"
+            "4. Any class containing 'footer' MUST have: background, padding, display:grid or display:flex for columns.\n"
+            "5. Any class containing 'carousel' or 'slider' MUST have: overflow:hidden. Tracks inside MUST have display:flex.\n"
+            "6. Any class containing 'accordion' or 'faq' MUST have visible styling. Answers/content MUST be display:block by default (NOT hidden — JS will handle toggling).\n"
+            "7. ALL layouts must work WITHOUT JavaScript — never use opacity:0, visibility:hidden, or display:none as default states.\n"
+            "8. Every section MUST have padding-top and padding-bottom of at least 4rem.\n"
         ))
     ]
     css = try_chain(get_web_style_chain(), messages, "web_style")
@@ -622,12 +624,51 @@ def web_logic_node(state: NovaState) -> NovaState:
     return {**state, "js_code": js.strip()}
 
 
+def generate_fallback_css(html, css):
+    import re
+    html_classes = set(re.findall(r'class="([^"]*)"', html))
+    all_classes = set()
+    for cls_group in html_classes:
+        for cls in cls_group.split():
+            all_classes.add(cls)
+    missing = []
+    for cls in sorted(all_classes):
+        if f".{cls}" not in css:
+            missing.append(cls)
+    if not missing:
+        return ""
+    fallback = "\n/* === AUTO-GENERATED FALLBACK CSS === */\n"
+    for cls in missing:
+        if any(k in cls for k in ["grid"]):
+            cols = "repeat(3, 1fr)" if any(k in cls for k in ["pricing", "feature", "card", "col"]) else "repeat(auto-fit, minmax(280px, 1fr))"
+            fallback += f".{cls} {{ display: grid !important; grid-template-columns: {cols} !important; gap: 2rem !important; }}\n"
+        elif any(k in cls for k in ["card", "item", "tile", "box"]):
+            fallback += f".{cls} {{ background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 2rem; }}\n"
+        elif any(k in cls for k in ["carousel", "slider", "track"]):
+            fallback += f".{cls} {{ display: flex; overflow: hidden; gap: 2rem; }}\n"
+        elif any(k in cls for k in ["accordion", "faq"]):
+            fallback += f".{cls} {{ display: block; padding: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); }}\n"
+        elif any(k in cls for k in ["footer"]):
+            fallback += f".{cls} {{ background: #0a0a0a; padding: 4rem 2rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; }}\n"
+        elif any(k in cls for k in ["section"]):
+            fallback += f".{cls} {{ padding: 5rem 2rem; }}\n"
+        elif any(k in cls for k in ["btn", "button", "cta"]):
+            fallback += f".{cls} {{ display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; }}\n"
+    return fallback
+
+
 def web_assembler_node(state: NovaState) -> NovaState:
     print("\n🔧 [WEB ASSEMBLER] Combining HTML + CSS + JS...")
     html = state['html_structure']
     print(f"DEBUG ASSEMBLER: html_structure length = {len(html)} chars")
     css = state['css_code']
     js = state['js_code']
+
+    # Generate fallback CSS for any missing classes
+    fallback_css = generate_fallback_css(html, css)
+    if fallback_css:
+        print(f"⚠ Injecting fallback CSS for missing class rules")
+        css = css + fallback_css
 
     # Inject CSS — use placeholder if present, else fallback to </head>
     style_tag = f"<style>\n{css}\n</style>"
