@@ -208,12 +208,11 @@ def get_web_debugger_final_chain():
     Returns complete fixed HTML.
     """
     return [
-        (groq,        "openai/gpt-oss-20b",    "GPT-OSS 20B (Groq) - Final"),          # CONFIRMED LIVE
-        (nvidia,      M_MINIMAX_M27,            "MiniMax M2.7 (NVIDIA) - Final"),        # CONFIRMED LIVE
-        (nvidia,      M_KIMI_K2,               "Kimi K2.6 (NVIDIA) - Final"),           # CONFIRMED LIVE
-        (groq,        M_LLAMA_33_70B,          "Llama 3.3 70B (Groq) - Final"),         # CONFIRMED LIVE
-        (openrouter,  M_OWL_ALPHA,             "Owl Alpha (OR) - Final"),               # new, verify
-        (openrouter,  M_GPT_OSS_120B,          "GPT-OSS 120B (OR) - Final"),            # new, verify
+        (nvidia_large,      M_MINIMAX_M27,            "MiniMax M2.7 (NVIDIA) - Final"),       # CONFIRMED LIVE
+        (nvidia_large,      M_KIMI_K2,                "Kimi K2.6 (NVIDIA) - Final"),          # CONFIRMED LIVE
+        (openrouter_large,  M_OWL_ALPHA,              "Owl Alpha (OR) - Final"),              # 1M ctx
+        (openrouter_large,  M_GPT_OSS_120B,           "GPT-OSS 120B (OR) - Final"),           # 131K ctx
+        (nvidia_large,      M_LLAMA_NEMOTRON_49B_V15, "Nemotron-Super-49B (NVIDIA) - Final"), # large ctx
     ]
 
 def get_web_reviewer_chain():
@@ -246,6 +245,15 @@ def try_chain(chain, messages, node_name=""):
             continue
     raise RuntimeError(f"[{node_name}] All {len(chain)} models failed. Last error: {last_error}")
 
+
+# Large-context factories for nodes that handle big HTML (15K+ tokens)
+def nvidia_large(model, temperature=0.6):
+    return ChatOpenAI(model=model, api_key=os.environ.get('NVIDIA_API_KEY','x'),
+                      base_url=NVIDIA_BASE, temperature=temperature, max_tokens=16000)
+
+def openrouter_large(model, temperature=0.6):
+    return ChatOpenAI(model=model, api_key=os.environ.get('OPENROUTER_API_KEY','x'),
+                      base_url=OR_BASE, temperature=temperature, max_tokens=16000)
 
 # -- Sanity print: works with ZERO API keys set, since nothing is constructed --
 if __name__ == "__main__":
