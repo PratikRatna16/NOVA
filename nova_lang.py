@@ -574,7 +574,7 @@ def web_style_node(state: NovaState) -> NovaState:
             "3. Any class containing 'grid' MUST have: display:grid, grid-template-columns, gap. Pricing grids use repeat(3,1fr). Feature grids use repeat(3,1fr).\n"
             "4. Any class containing 'footer' MUST have: background, padding, display:grid or display:flex for columns.\n"
             "5. Any class containing 'carousel' or 'slider' MUST have: overflow:hidden. Tracks inside MUST have display:flex.\n"
-            "6. Any class containing 'accordion' or 'faq' MUST have visible styling. Answers/content MUST be display:block by default (NOT hidden — JS will handle toggling).\n"
+            "6. Any class containing 'accordion' or 'faq' MUST have: the container display:block. Answer/content elements (faq-answer, accordion-content, accordion-body) MUST be display:none by default — JS toggles them to display:block on click. DO NOT set display:block on answer elements.\n"
             "7. ALL layouts must work WITHOUT JavaScript — never use opacity:0, visibility:hidden, or display:none as default states.\n"
             "8. Every section MUST have padding-top and padding-bottom of at least 4rem.\n"
         ))
@@ -639,15 +639,23 @@ def generate_fallback_css(html, css):
         return ""
     fallback = "\n/* === AUTO-GENERATED FALLBACK CSS === */\n"
     for cls in missing:
-        if any(k in cls for k in ["grid"]):
+        # INTERACTIVE — correct default states, no !important (JS must be able to override)
+        if any(k in cls for k in ["faq-answer", "accordion-content", "accordion-body", "accordion-answer"]):
+            fallback += f".{cls} {{ display: none; padding: 1rem; border-top: 1px solid rgba(255,255,255,0.1); }}\n"
+        elif any(k in cls for k in ["faq", "accordion"]):
+            fallback += f".{cls} {{ display: block; padding: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); }}\n"
+        elif any(k in cls for k in ["carousel-track", "slider-track", "testimonials-track"]):
+            fallback += f".{cls} {{ display: flex; overflow: hidden; gap: 2rem; transition: transform 0.3s ease; }}\n"
+        elif any(k in cls for k in ["carousel", "slider"]):
+            fallback += f".{cls} {{ overflow: hidden; position: relative; }}\n"
+        elif any(k in cls for k in ["nav-links", "nav-menu", "navbar-nav"]):
+            fallback += f".{cls} {{ display: flex; gap: 2rem; list-style: none; align-items: center; }}\n"
+        # LAYOUT — no JS interaction, safe defaults
+        elif any(k in cls for k in ["grid"]):
             cols = "repeat(3, 1fr)" if any(k in cls for k in ["pricing", "feature", "card", "col"]) else "repeat(auto-fit, minmax(280px, 1fr))"
-            fallback += f".{cls} {{ display: grid !important; grid-template-columns: {cols} !important; gap: 2rem !important; }}\n"
+            fallback += f".{cls} {{ display: grid; grid-template-columns: {cols}; gap: 2rem; }}\n"
         elif any(k in cls for k in ["card", "item", "tile", "box"]):
             fallback += f".{cls} {{ background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 2rem; }}\n"
-        elif any(k in cls for k in ["carousel", "slider", "track"]):
-            fallback += f".{cls} {{ display: flex; overflow: hidden; gap: 2rem; }}\n"
-        elif any(k in cls for k in ["accordion", "faq"]):
-            fallback += f".{cls} {{ display: block; padding: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); }}\n"
         elif any(k in cls for k in ["footer"]):
             fallback += f".{cls} {{ background: #0a0a0a; padding: 4rem 2rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; }}\n"
         elif any(k in cls for k in ["section"]):
@@ -656,6 +664,100 @@ def generate_fallback_css(html, css):
             fallback += f".{cls} {{ display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; }}\n"
     return fallback
 
+        elif any(k in cls for k in ["footer"]):
+            fallback += f".{cls} {{ background: #0a0a0a; padding: 4rem 2rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; }}\n"
+        elif any(k in cls for k in ["section"]):
+            fallback += f".{cls} {{ padding: 5rem 2rem; }}\n"
+        elif any(k in cls for k in ["btn", "button", "cta"]):
+            fallback += f".{cls} {{ display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; }}\n"
+    return fallback
+
+
+
+def validate_interactive_css(html, css):
+    """
+    Deterministic post-assembly check.
+    Scans HTML for known interactive components and verifies
+    their critical CSS properties exist. Injects minimal scoped
+    fixes WITHOUT !important so JS can still override states.
+    Returns (fixed_css, report).
+    """
+    import re
+    fixes = []
+    report = []
+
+    # Component rules: (html_class_keywords, required_css_property, required_value, fix_css)
+    RULES = [
+        # FAQ / accordion answers must be hidden by default
+        {
+            "name": "FAQ answer hidden",
+            "html_keys": ["faq-answer", "accordion-content", "accordion-body"],
+            "check_prop": "display",
+            "check_bad_val": "block",   # if display:block is set, it overrides JS
+            "fix": lambda cls: f".{cls} {{ display: none; }}",
+            "mode": "must_be_hidden",
+        },
+        # Carousel track must clip overflow
+        {
+            "name": "Carousel overflow",
+            "html_keys": ["carousel-track", "slider-track", "testimonials-track"],
+            "check_prop": "overflow",
+            "required_val": "hidden",
+            "fix": lambda cls: f".{cls} {{ overflow: hidden; }}",
+            "mode": "must_have_prop",
+        },
+    ]
+
+    # Extract all classes used in HTML
+    html_classes = set()
+    for group in re.findall(r'class="([^"]*)"', html):
+        for c in group.split():
+            html_classes.add(c)
+
+    for rule in RULES:
+        for cls in html_classes:
+            if not any(k == cls or k in cls for k in rule["html_keys"]):
+                continue
+
+            mode = rule["mode"]
+
+            if mode == "must_be_hidden":
+                # Check if style model set display:block on answer element (wrong)
+                # Pattern: .cls { ... display: block ... }
+                bad_pattern = re.compile(
+                    rf'\.{re.escape(cls)}\s*{{[^}}]*display\s*:\s*block', re.IGNORECASE
+                )
+                if bad_pattern.search(css):
+                    fix = f"/* VALIDATOR: override wrong display:block on {cls} */\n.{cls} {{ display: none; }}"
+                    fixes.append(fix)
+                    report.append(f"FIXED: {cls} had display:block, overridden to display:none")
+                elif f".{cls}" not in css:
+                    fix = rule["fix"](cls)
+                    fixes.append(fix)
+                    report.append(f"INJECTED: {cls} missing, added display:none default")
+
+            elif mode == "must_have_prop":
+                prop = rule["check_prop"]
+                required = rule["required_val"]
+                # Check if property exists with wrong value
+                selector_block = re.search(
+                    rf'\.{re.escape(cls)}\s*{{([^}}]*)}}', css, re.IGNORECASE
+                )
+                if selector_block:
+                    block_content = selector_block.group(1)
+                    if prop in block_content and required not in block_content:
+                        fix = f"/* VALIDATOR: enforce {prop}:{required} on {cls} */\n.{cls} {{ {prop}: {required}; }}"
+                        fixes.append(fix)
+                        report.append(f"FIXED: {cls} had wrong {prop}, enforced {required}")
+                else:
+                    fix = rule["fix"](cls)
+                    fixes.append(fix)
+                    report.append(f"INJECTED: {cls} missing, added {prop}:{required}")
+
+    if fixes:
+        fixed_css = css + "\n/* === INTERACTIVE CSS VALIDATOR === */\n" + "\n".join(fixes) + "\n"
+        return fixed_css, report
+    return css, []
 
 def web_assembler_node(state: NovaState) -> NovaState:
     print("\n🔧 [WEB ASSEMBLER] Combining HTML + CSS + JS...")
@@ -669,6 +771,12 @@ def web_assembler_node(state: NovaState) -> NovaState:
     if fallback_css:
         print(f"⚠ Injecting fallback CSS for missing class rules")
         css = css + fallback_css
+
+    # Deterministic interactive CSS validator — runs after fallback, has veto on wrong states
+    css, validation_report = validate_interactive_css(html, css)
+    if validation_report:
+        for msg in validation_report:
+            print(f"🛡 VALIDATOR: {msg}")
 
     # Inject CSS — use placeholder if present, else fallback to </head>
     style_tag = f"<style>\n{css}\n</style>"
