@@ -156,8 +156,6 @@ def researcher_node(state: NovaState) -> NovaState:
     print("\n🔬 [RESEARCHER] Building blueprint...")
 
     historical_context = graph_memory.recall_experience(state['topic'])
-    
-    # Add a custom guidance instruction if past context exists
     graph_guidance = ""
     if historical_context:
         graph_guidance = (
@@ -165,74 +163,109 @@ def researcher_node(state: NovaState) -> NovaState:
             f"{historical_context}\n"
             f"Incorporate layout adjustments or fallbacks into your blueprint to prevent these errors.\n"
         )
-    messages = [
-        SystemMessage(content=(
-            "You are a technical researcher. Output clean structured Markdown blueprints.\n\n"
-            "When designing CLI tools, enforce these rules:\n\n"
-            "INPUT & ARGUMENTS:\n"
-            "- ALWAYS use variable positional arguments (nargs=+) for terms that can be multiple.\n"
-            "- ALWAYS favor standard CLI arguments first. JSON/YAML config files are optional only.\n"
-            "- ALL time/scheduling utilities must accept variable overrides via CLI (-duration, -minutes).\n"
-            "- Accept flexible positional fallbacks for core primitives (e.g. python script.py 30 should infer 30 seconds without requiring explicit -duration flag).\n"
-            "- File format tools must infer format from file extensions automatically.\n"
-            "- For tools with distinct opposing actions (compress/decompress, encrypt/decrypt), ALWAYS use argparse subcommands not boolean flags mixed with positionals.\n"
-            "- If boolean action flags are used, they MUST be in a mutually exclusive group (add_mutually_exclusive_group(required=True)).\n\n"
-            "FILE HANDLING:\n"
-            "- ALWAYS append to existing JSON array structure. NEVER overwrite with w mode directly.\n\n"
-            "LIMIT/FLAG LOGIC:\n"
-            "- Any -l or --limit flag must have strict validation. Validate range BEFORE slicing.\n\n"
-            "SEARCH & AMBIGUITY:\n"
-            "- ALWAYS build two distinct paths - Direct Title Lookup first, fallback to Keyword Search.\n\n"
-            "STREAM PROCESSING:\n"
-            "- Each line must be evaluated ONCE only. Mark it consumed after first match.\n"
-            "- Throttling counters must be isolated per-line.\n\n"
-            "FEATURE COMPLETENESS:\n"
-            "- Parse the users topic for EVERY explicit analytical feature requested. Each must have console output.\n"
-            "- Security tools must display length, charset size, entropy bits, strength score.\n"
-            "- Metric/telemetry labels must change semantically based on operation direction. Never reuse compression labels for decompression output.\n\n"
-            "SMART DEFAULTS & INFERENCE:\n"
-            "- Infer file format from extensions automatically. Never require explicit flags for known extensions.\n"
-            "- Never throw validation errors for missing type declarations when standard extensions are provided.\n\n"
-            "NETWORK & API TOOLS:\n"
-            "- ALWAYS validate required credentials locally BEFORE making any network request. Abort immediately if missing.\n"
-            "- ALWAYS support environment variable fallbacks for API keys alongside explicit CLI flags.\n"
-            "- ALWAYS include explicit user-friendly error handling for HTTP status codes (401, 404, 500).\n\n"
-            "ARGUMENT MAPPING:\n"
-            "- For structured config file generation, strictly separate the friendly label/alias from the physical address/IP. Never map the same value to both.\n"
-            "- Trace every CLI argument variable destination explicitly. Identity and routing must always be distinct parameters.\n\n"
-            "REGEX & PATTERN MATCHING:\n"
-            "- ALWAYS use native Python re.sub() for regex substitutions. Never fall back to string slice substitution.\n"
-            "- Regex tools must correctly handle capture group backreferences (\\1, \\g<1>) dynamically.\n\n"
-            "COMMAND INTERFACE COMPLIANCE:\n"
-            "- ALWAYS implement every explicit subcommand requested in the user prompt. Never drop or swap a requested command for a utility variation.\n"
-            "- Cross-reference final argparse choices against user requirements before finalizing blueprint.\n\n"
-            "PATTERN MATCHING INTEGRITY:\n"
-            "- Pattern matching and regex tools must evaluate against the COMPLETE target string (e.g. full filename including extension). Never strip extensions or paths before matching unless explicitly instructed.\n"
-            "- If structural splitting is needed for filesystem safety, handle it internally after matching, not before.\n"
-            "- NEVER split filename into .stem or .suffix before matching. Always run regex/pattern logic against the raw .name attribute of the path object.\n\n"
-            "STATEFUL & BACKGROUND TOOLS:\n"
-            "- Background operations MUST print real-time diagnostic lines to stdout during execution. Use \\r line-clearing updates or progress bars for long-running processes, never silent execution.\n"
-            "- Any tool persisting state to SQLite or JSON MUST provide a --view, --report, or stats subcommand.\n"
-            "- Never make periodic tracking flags globally required if they block standalone admin commands.\n"
-            "- For background daemons or timers, use proper Linux process detachment: double-fork, TTY decoupling, or write worker PID to a lockfile (~/.config/ or /tmp/) so separate CLI invocations can track and signal the active process. Always expose PID on screen and provide a --kill flag to terminate the daemon safely.\n\n"
-            "AUDIO & SIGNALS:\n"
-            "- For countdown alarms or event alerts, use native terminal bell (print(chr(7))) as primary signal.\n"
-            "- Always wrap external audio library imports in try/except to prevent runtime crashes if library is missing.\n\n"
-            "BOUNDARY CONDITIONS:\n"
-            "- All numeric inputs must be validated against realistic min/max before use."
-        )),
-        HumanMessage(content=(
-            f"Research the core requirements for: {state['topic']}. "
-            f"{graph_guidance}"
-            "Produce a comprehensive Markdown technical specification."
-        ))
-    ]
+
+    if is_web_task(state['topic']):
+        messages = [
+            SystemMessage(content=(
+                "You are a senior web copywriter and UX strategist. "
+                "Your job is to produce a complete content blueprint for a web page.\n"
+                "Output clean structured Markdown with REAL content — not placeholders, not instructions, not descriptions of what to write.\n\n"
+                "RULES:\n"
+                "- Invent a realistic company name, product name, and tagline.\n"
+                "- Write actual headline copy, subheadings, button labels, and body text.\n"
+                "- Write real feature titles and 1-2 sentence descriptions for each feature.\n"
+                "- Write real pricing plan names, prices, and feature lists.\n"
+                "- Write real FAQ questions and answers.\n"
+                "- Write real testimonial quotes with author names and roles.\n"
+                "- Write real footer link labels and copyright text.\n"
+                "- DO NOT write [PLACEHOLDER] tokens. DO NOT write instructions like \'Write a headline here\'.\n"
+                "- DO NOT write a technical spec. Write actual content a developer can copy directly into HTML.\n\n"
+                "FORMAT:\n"
+                "Use clear section headers (## Hero, ## Features, ## Pricing, ## FAQ, ## Testimonials, ## Footer).\n"
+                "Under each section, list every content item with its label and actual value.\n"
+                "Example:\n"
+                "## Hero\n"
+                "- Company: NovaSuite\n"
+                "- Headline: Ship faster. Scale smarter.\n"
+                "- Subheading: The all-in-one platform for modern dev teams.\n"
+                "- CTA Button: Start Free Trial\n"
+            )),
+            HumanMessage(content=(
+                f"Write a complete content blueprint for this web page: {state['topic']}\n"
+                f"{graph_guidance}"
+                "Output real content for every section. No placeholders. No instructions."
+            ))
+        ]
+    else:
+        messages = [
+            SystemMessage(content=(
+                "You are a technical researcher. Output clean structured Markdown blueprints.\n\n"
+                "When designing CLI tools, enforce these rules:\n\n"
+                "INPUT & ARGUMENTS:\n"
+                "- ALWAYS use variable positional arguments (nargs=+) for terms that can be multiple.\n"
+                "- ALWAYS favor standard CLI arguments first. JSON/YAML config files are optional only.\n"
+                "- ALL time/scheduling utilities must accept variable overrides via CLI (-duration, -minutes).\n"
+                "- Accept flexible positional fallbacks for core primitives (e.g. python script.py 30 should infer 30 seconds without requiring explicit -duration flag).\n"
+                "- File format tools must infer format from file extensions automatically.\n"
+                "- For tools with distinct opposing actions (compress/decompress, encrypt/decrypt), ALWAYS use argparse subcommands not boolean flags mixed with positionals.\n"
+                "- If boolean action flags are used, they MUST be in a mutually exclusive group (add_mutually_exclusive_group(required=True)).\n\n"
+                "FILE HANDLING:\n"
+                "- ALWAYS append to existing JSON array structure. NEVER overwrite with w mode directly.\n\n"
+                "LIMIT/FLAG LOGIC:\n"
+                "- Any -l or --limit flag must have strict validation. Validate range BEFORE slicing.\n\n"
+                "SEARCH & AMBIGUITY:\n"
+                "- ALWAYS build two distinct paths - Direct Title Lookup first, fallback to Keyword Search.\n\n"
+                "STREAM PROCESSING:\n"
+                "- Each line must be evaluated ONCE only. Mark it consumed after first match.\n"
+                "- Throttling counters must be isolated per-line.\n\n"
+                "FEATURE COMPLETENESS:\n"
+                "- Parse the users topic for EVERY explicit analytical feature requested. Each must have console output.\n"
+                "- Security tools must display length, charset size, entropy bits, strength score.\n"
+                "- Metric/telemetry labels must change semantically based on operation direction. Never reuse compression labels for decompression output.\n\n"
+                "SMART DEFAULTS & INFERENCE:\n"
+                "- Infer file format from extensions automatically. Never require explicit flags for known extensions.\n"
+                "- Never throw validation errors for missing type declarations when standard extensions are provided.\n\n"
+                "NETWORK & API TOOLS:\n"
+                "- ALWAYS validate required credentials locally BEFORE making any network request. Abort immediately if missing.\n"
+                "- ALWAYS support environment variable fallbacks for API keys alongside explicit CLI flags.\n"
+                "- ALWAYS include explicit user-friendly error handling for HTTP status codes (401, 404, 500).\n\n"
+                "ARGUMENT MAPPING:\n"
+                "- For structured config file generation, strictly separate the friendly label/alias from the physical address/IP. Never map the same value to both.\n"
+                "- Trace every CLI argument variable destination explicitly. Identity and routing must always be distinct parameters.\n\n"
+                "REGEX & PATTERN MATCHING:\n"
+                "- ALWAYS use native Python re.sub() for regex substitutions. Never fall back to string slice substitution.\n"
+                "- Regex tools must correctly handle capture group backreferences (\\1, \\g<1>) dynamically.\n\n"
+                "COMMAND INTERFACE COMPLIANCE:\n"
+                "- ALWAYS implement every explicit subcommand requested in the user prompt. Never drop or swap a requested command for a utility variation.\n"
+                "- Cross-reference final argparse choices against user requirements before finalizing blueprint.\n\n"
+                "PATTERN MATCHING INTEGRITY:\n"
+                "- Pattern matching and regex tools must evaluate against the COMPLETE target string. Never strip extensions or paths before matching unless explicitly instructed.\n"
+                "- NEVER split filename into .stem or .suffix before matching. Always run regex/pattern logic against the raw .name attribute of the path object.\n\n"
+                "STATEFUL & BACKGROUND TOOLS:\n"
+                "- Background operations MUST print real-time diagnostic lines to stdout during execution.\n"
+                "- Any tool persisting state to SQLite or JSON MUST provide a --view, --report, or stats subcommand.\n"
+                "- Never make periodic tracking flags globally required if they block standalone admin commands.\n"
+                "- For background daemons or timers, use proper Linux process detachment: double-fork, TTY decoupling, or write worker PID to a lockfile so separate CLI invocations can track and signal the active process.\n\n"
+                "AUDIO & SIGNALS:\n"
+                "- For countdown alarms or event alerts, use native terminal bell (print(chr(7))) as primary signal.\n"
+                "- Always wrap external audio library imports in try/except to prevent runtime crashes if library is missing.\n\n"
+                "BOUNDARY CONDITIONS:\n"
+                "- All numeric inputs must be validated against realistic min/max before use."
+            )),
+            HumanMessage(content=(
+                f"Research the core requirements for: {state['topic']}. "
+                f"{graph_guidance}"
+                "Produce a comprehensive Markdown technical specification."
+            ))
+        ]
+
     blueprint = try_chain(get_researcher_chain(), messages, "researcher")
     os.makedirs("runs", exist_ok=True)
     with open(f"runs/{state['run_id']}_blueprint.md", "w") as f:
         f.write(blueprint)
     print("✅ Blueprint written.")
     return {**state, "blueprint": blueprint}
+
 
 def coder_node(state: NovaState) -> NovaState:
     print("\n💻 [CODER] Writing code...")
@@ -580,6 +613,9 @@ def web_style_node(state: NovaState) -> NovaState:
         ))
     ]
     css = try_chain(get_web_style_chain(), messages, "web_style")
+    if not css or len(css.strip()) < 100:
+        print("⚠ CSS empty on first attempt — retrying web_style...")
+        css = try_chain(get_web_style_chain(), messages, "web_style")
     css_lines = css.split('\n')
     css_lines = [l for l in css_lines if not l.strip().startswith('```')]
     css = '\n'.join(css_lines).strip()
@@ -639,7 +675,7 @@ def generate_fallback_css(html, css):
         return ""
     fallback = "\n/* === AUTO-GENERATED FALLBACK CSS === */\n"
     for cls in missing:
-        # INTERACTIVE — correct default states, no !important (JS must be able to override)
+        # INTERACTIVE — no !important, correct default states so JS can override
         if any(k in cls for k in ["faq-answer", "accordion-content", "accordion-body", "accordion-answer"]):
             fallback += f".{cls} {{ display: none; padding: 1rem; border-top: 1px solid rgba(255,255,255,0.1); }}\n"
         elif any(k in cls for k in ["faq", "accordion"]):
@@ -663,16 +699,6 @@ def generate_fallback_css(html, css):
         elif any(k in cls for k in ["btn", "button", "cta"]):
             fallback += f".{cls} {{ display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; }}\n"
     return fallback
-
-        elif any(k in cls for k in ["footer"]):
-            fallback += f".{cls} {{ background: #0a0a0a; padding: 4rem 2rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; }}\n"
-        elif any(k in cls for k in ["section"]):
-            fallback += f".{cls} {{ padding: 5rem 2rem; }}\n"
-        elif any(k in cls for k in ["btn", "button", "cta"]):
-            fallback += f".{cls} {{ display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; }}\n"
-    return fallback
-
-
 
 def validate_interactive_css(html, css):
     """

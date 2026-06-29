@@ -54,17 +54,23 @@ M_QWEN35_397B          = "qwen/qwen3.5-397b-a17b"                    # trial-fla
 M_MINIMAX_M27          = "minimaxai/minimax-m2.7"                    # free on NVIDIA
 M_MINIMAX_M3           = "minimaxai/minimax-m3"                      # NVIDIA "Preview" + non-commercial license
 M_SEED_OSS_36B         = "bytedance/seed-oss-36b-instruct"           # trial-flagged
-M_NEMOTRON_ULTRA       = "nvidia/nemotron-3-ultra-550b-a55b"         # confirmed
+M_NEMOTRON_ULTRA       = "nvidia/nemotron-3-ultra-550b-a55b"         # DEAD — 504 consistently on NVIDIA too
 M_LLAMA_NEMOTRON_49B_V15 = "nvidia/llama-3.3-nemotron-super-49b-v1.5"  # UNVERIFIED free status
 M_NEMOTRON_NANO9       = "nvidia/NVIDIA-Nemotron-Nano-9B-v2"         # was lowercase, 404'd — uppercase per NVIDIA slug
 
 # OpenRouter
 M_LAGUNA_M1            = "poolside/laguna-m.1:free"                  # CONFIRMED LIVE
 M_GEMMA_4              = "google/gemma-4-31b-it:free"                # CONFIRMED LIVE (exact size name unconfirmed)
-M_NEMOTRON_ULTRA_OR    = "nvidia/nemotron-3-ultra-550b-a55b:free"    # 504 on live test 2026-06-24, retry before trusting
+M_NEMOTRON_ULTRA_OR    = "nvidia/nemotron-3-ultra-550b-a55b:free"    # DEAD — 504 consistently, do not use in chains
 M_SEED_OSS_OR          = "bytedance/seed-oss-36b-instruct:free"      # UNVERIFIED on OR specifically
 
+# OpenRouter — new additions
+M_OWL_ALPHA           = "openrouter/optimus-alpha"                  # Owl Alpha OR, 1M context, agentic
+M_GPT_OSS_120B        = "openai/gpt-oss-120b:free"                  # 120B, 131K context, strong reasoning
+M_COHERE_NORTH_MINI   = "cohere/command-r-plus:free"                 # North Mini Code, 256K, code-focused — verify slug
+
 # REMOVED FROM USE:
+
 # M_GLM_51 = "z-ai/glm-5.1"         — correct slug confirmed but NO free tier on OR ($0.98/M in)
 # M_STEP_35 = "stepfun/step-3.5-flash" — live 404, free tier discontinued
 # M_MINIMAX_M3_OR = "minimax/minimax-m3:free" — confirmed no free tier exists anywhere
@@ -117,6 +123,7 @@ def get_cli_coder_chain():
         (nvidia,     M_KIMI_K2,            "Kimi K2.6 (NVIDIA)"),
         (nvidia,     M_DEEPSEEK_V4_NVIDIA, "DeepSeek V4 Flash (NVIDIA route)"),
         (nvidia,     M_QWEN35_397B,        "Qwen3.5-397B (NVIDIA, trial, VLM)"),
+        (openrouter, M_COHERE_NORTH_MINI,  "Cohere North Mini Code (OR) - backup"),  # new, verify slug
     ]
 
 def get_cli_debugger_chain():
@@ -188,9 +195,9 @@ def get_web_debugger_p2_chain():
     Receives P1 JS audit summary to know what JS issues were already found.
     """
     return [
-        (openrouter,  M_GEMMA_4,            "Gemma 4 (OR) - P2 HTML/CSS"),
-        (nvidia,      M_MINIMAX_M27,        "MiniMax M2.7 (NVIDIA) - P2 HTML/CSS"),
-        (nvidia,      M_KIMI_K2,            "Kimi K2.6 (NVIDIA) - P2 HTML/CSS"),
+        (nvidia,      M_MINIMAX_M27,         "MiniMax M2.7 (NVIDIA) - P2 HTML/CSS"),
+        (nvidia,      M_KIMI_K2,             "Kimi K2.6 (NVIDIA) - P2 HTML/CSS"),
+        (groq,        M_LLAMA_33_70B,        "Llama 3.3 70B (Groq) - P2 HTML/CSS"),
     ]
 
 def get_web_debugger_final_chain():
@@ -201,10 +208,12 @@ def get_web_debugger_final_chain():
     Returns complete fixed HTML.
     """
     return [
-        (nvidia,      M_LLAMA_NEMOTRON_49B_V15, "Nemotron-Super-49B (NVIDIA) - Final"),
-        (nvidia,      M_QWEN35_397B,            "Qwen3.5-397B (NVIDIA) - Final"),
-        (nvidia,      M_MINIMAX_M27,            "MiniMax M2.7 (NVIDIA) - Final"),
-        (nvidia,      M_NEMOTRON_ULTRA,         "Nemotron Ultra 550B (NVIDIA) - Final"),  # 504s frequently
+        (groq,        "openai/gpt-oss-20b",    "GPT-OSS 20B (Groq) - Final"),          # CONFIRMED LIVE
+        (nvidia,      M_MINIMAX_M27,            "MiniMax M2.7 (NVIDIA) - Final"),        # CONFIRMED LIVE
+        (nvidia,      M_KIMI_K2,               "Kimi K2.6 (NVIDIA) - Final"),           # CONFIRMED LIVE
+        (groq,        M_LLAMA_33_70B,          "Llama 3.3 70B (Groq) - Final"),         # CONFIRMED LIVE
+        (openrouter,  M_OWL_ALPHA,             "Owl Alpha (OR) - Final"),               # new, verify
+        (openrouter,  M_GPT_OSS_120B,          "GPT-OSS 120B (OR) - Final"),            # new, verify
     ]
 
 def get_web_reviewer_chain():
