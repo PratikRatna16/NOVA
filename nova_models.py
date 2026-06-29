@@ -48,6 +48,7 @@ OLLAMA_BASE = "http://localhost:11434/v1"
 # NVIDIA NIM
 M_KIMI_K2              = "moonshotai/kimi-k2.6"                      # confirmed
 M_DEEPSEEK_V4_NVIDIA   = "deepseek-ai/deepseek-v4-flash"             # confirmed, NVIDIA route
+M_DEEPSEEK_V4_PRO      = "deepseek-ai/deepseek-v4-0709"              # V4 Pro, 1M ctx, NVIDIA NIM free
 M_QWEN3_NEXT_80B       = "qwen/qwen3-next-80b-a3b-instruct"          # trial-flagged
 M_QWEN35_122B          = "qwen/qwen3.5-122b-a10b"                    # trial-flagged, VLM
 M_QWEN35_397B          = "qwen/qwen3.5-397b-a17b"                    # trial-flagged, VLM
@@ -208,11 +209,12 @@ def get_web_debugger_final_chain():
     Returns complete fixed HTML.
     """
     return [
+        (gemini_large,      "gemini-2.5-flash",       "Gemini 2.5 Flash - Final"),            # 1M ctx, free
+        (nvidia_large,      M_DEEPSEEK_V4_NVIDIA,     "DeepSeek V4 Flash (NVIDIA) - Final"),  # 1M ctx, confirmed
+        (nvidia_large,      M_DEEPSEEK_V4_PRO,        "DeepSeek V4 Pro (NVIDIA) - Final"),    # 1M ctx
         (nvidia_large,      M_MINIMAX_M27,            "MiniMax M2.7 (NVIDIA) - Final"),       # CONFIRMED LIVE
         (nvidia_large,      M_KIMI_K2,                "Kimi K2.6 (NVIDIA) - Final"),          # CONFIRMED LIVE
         (openrouter_large,  M_OWL_ALPHA,              "Owl Alpha (OR) - Final"),              # 1M ctx
-        (openrouter_large,  M_GPT_OSS_120B,           "GPT-OSS 120B (OR) - Final"),           # 131K ctx
-        (nvidia_large,      M_LLAMA_NEMOTRON_49B_V15, "Nemotron-Super-49B (NVIDIA) - Final"), # large ctx
     ]
 
 def get_web_reviewer_chain():
@@ -245,6 +247,16 @@ def try_chain(chain, messages, node_name=""):
             continue
     raise RuntimeError(f"[{node_name}] All {len(chain)} models failed. Last error: {last_error}")
 
+
+# Gemini large-context factory (uses Google AI Studio, free tier, 1M ctx)
+def gemini_large(model="gemini-2.5-flash", temperature=0.6):
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    return ChatGoogleGenerativeAI(
+        model=model,
+        google_api_key=os.environ.get('GEMINI_API_KEY', ''),
+        temperature=temperature,
+        max_output_tokens=16000,
+    )
 
 # Large-context factories for nodes that handle big HTML (15K+ tokens)
 def nvidia_large(model, temperature=0.6):
