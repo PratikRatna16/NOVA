@@ -559,11 +559,12 @@ def web_structure_node(state: NovaState) -> NovaState:
             "- No inline styles. No script tags. Pure structural HTML only.\n"
             "- Use semantic tags: header, nav, main, section, article, footer.\n"
             "- Every interactive element must have a unique ID.\n"
-            "- CONTENT RULES: Use ONLY content explicitly stated in the blueprint below. "
-            "Do NOT invent names, projects, skills, experience, testimonials, stats, or any other content. "
-            "Use placeholder text like [NAME], [PROJECT_TITLE], [SKILL] where real content isn't specified. "
-            "Never fabricate realistic-looking fake data.\n"
-            f"\nDESIGN CONTEXT:\n{design_context}"
+            "- FOOTER: The <footer> tag MUST also have class=\"footer\". Inside it, wrap link groups in class=\"footer-grid\" or \"footer-columns\" so CSS can target them.\n"
+            "- NAVBAR: ALWAYS include visible desktop nav links in a <ul class=\"nav-links\"> inside the nav. Never generate mobile-only hamburger menus without also including desktop nav links.\n"
+            "- CONTENT RULES: The blueprint below contains REAL, finalized content (company name, headline, copy, prices, FAQ, testimonials). "
+            "Use this content directly in the HTML — do NOT replace it with placeholders, do NOT invent new content, and do NOT alter the wording. "
+            "Every section in the blueprint must appear in the HTML with its actual text.\n"
+            f"\nDESIGN CONTEXT — use this guidance for layout, structure, and CSS variable hints (actual styling is applied later by the style model):\n{design_context}"
         )),
         HumanMessage(content=f"Build the complete HTML structure for: {state['blueprint']}")
     ]
@@ -898,7 +899,7 @@ def web_debugger_node(state: NovaState) -> NovaState:
         fixed = fixed.split('\n', 1)[1]
     if fixed.endswith('```'):
         fixed = fixed.rsplit('```', 1)[0]
-    if len(fixed) > len(state['final_html']) * 0.7:
+    if len(fixed) > len(state['final_html']) * 0.5:
         with open(f"runs/{state['run_id']}_code.html", "w") as f:
             f.write(fixed)
         print("✅ Web debugger applied fixes.")

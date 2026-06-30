@@ -77,7 +77,8 @@ M_COHERE_NORTH_MINI   = "cohere/command-r-plus:free"                 # North Min
 # M_MINIMAX_M3_OR = "minimax/minimax-m3:free" — confirmed no free tier exists anywhere
 
 # Groq
-M_LLAMA_33_70B         = "llama-3.3-70b-versatile"                   # confirmed, 1K RPD as of June 2026
+M_LLAMA_33_70B         = "llama-3.3-70b-versatile"                   # DEPRECATED by Groq 2026-06-17, do not use
+M_GPT_OSS_120B_GROQ    = "openai/gpt-oss-120b"                       # Groq replacement for Llama 3.3 70B
 
 # Local Ollama — true offline tier, immune to any provider's policy changes
 M_QWEN_CODER_7B        = "qwen2.5-coder:7b"
@@ -113,7 +114,7 @@ def ollama(model, temperature=0.6, max_tokens=4096):
 
 def get_researcher_chain():
     return [
-        (groq,       M_LLAMA_33_70B,   "Llama 3.3 70B (Groq)"),
+        (groq,       M_GPT_OSS_120B_GROQ,   "GPT-OSS 120B (Groq)"),
         (nvidia,     M_SEED_OSS_36B,   "Seed-OSS-36B (NVIDIA, trial)"),
         (groq,       "openai/gpt-oss-20b", "GPT-OSS 20B (Groq)"),
     ]
@@ -139,7 +140,7 @@ def get_cli_reviewer_chain():
     return [
         (nvidia,      M_LLAMA_NEMOTRON_49B_V15, "Llama-3.3-Nemotron-Super-49B-v1.5 (NVIDIA, CONFIRMED LIVE)"),
         (openrouter,  M_NEMOTRON_ULTRA_OR,       "Nemotron Ultra 550B (OR)"),
-        (groq,        M_LLAMA_33_70B,            "Llama 3.3 70B (Groq)"),
+        (groq,        M_GPT_OSS_120B_GROQ,            "GPT-OSS 120B (Groq)"),
         (ollama,      M_QWEN_CODER_7B,           "Qwen2.5-Coder-7B (LOCAL, offline last resort)"),
     ]
 
@@ -198,7 +199,7 @@ def get_web_debugger_p2_chain():
     return [
         (nvidia,      M_MINIMAX_M27,         "MiniMax M2.7 (NVIDIA) - P2 HTML/CSS"),
         (nvidia,      M_KIMI_K2,             "Kimi K2.6 (NVIDIA) - P2 HTML/CSS"),
-        (groq,        M_LLAMA_33_70B,        "Llama 3.3 70B (Groq) - P2 HTML/CSS"),
+        (groq,        M_GPT_OSS_120B_GROQ,        "GPT-OSS 120B (Groq) - P2 HTML/CSS"),
     ]
 
 def get_web_debugger_final_chain():
@@ -221,7 +222,7 @@ def get_web_reviewer_chain():
     return [
         (groq,   "openai/gpt-oss-20b",    "GPT-OSS 20B (Groq)"),               # CONFIRMED LIVE
         (nvidia, M_LLAMA_NEMOTRON_49B_V15, "Llama-3.3-Nemotron-Super-49B-v1.5 (NVIDIA)"),  # CONFIRMED LIVE
-        (groq,   M_LLAMA_33_70B,           "Llama 3.3 70B (Groq)"),            # CONFIRMED LIVE
+        (groq,   M_GPT_OSS_120B_GROQ,           "GPT-OSS 120B (Groq)"),            # CONFIRMED LIVE, replaced deprecated Llama 3.3
     ]
 
 def get_web_assembler_conflict_chain():
@@ -255,13 +256,13 @@ def gemini_large(model="gemini-2.5-flash", temperature=0.6):
         model=model,
         google_api_key=os.environ.get('GEMINI_API_KEY', ''),
         temperature=temperature,
-        max_output_tokens=16000,
+        max_output_tokens=32000,
     )
 
 # Large-context factories for nodes that handle big HTML (15K+ tokens)
 def nvidia_large(model, temperature=0.6):
     return ChatOpenAI(model=model, api_key=os.environ.get('NVIDIA_API_KEY','x'),
-                      base_url=NVIDIA_BASE, temperature=temperature, max_tokens=16000)
+                      base_url=NVIDIA_BASE, temperature=temperature, max_tokens=32000)
 
 def openrouter_large(model, temperature=0.6):
     return ChatOpenAI(model=model, api_key=os.environ.get('OPENROUTER_API_KEY','x'),
