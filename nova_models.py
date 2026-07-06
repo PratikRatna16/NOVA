@@ -48,7 +48,9 @@ OLLAMA_BASE = "http://localhost:11434/v1"
 # NVIDIA NIM
 M_KIMI_K2              = "moonshotai/kimi-k2.6"                      # confirmed
 M_DEEPSEEK_V4_NVIDIA   = "deepseek-ai/deepseek-v4-flash"             # confirmed, NVIDIA route
-M_DEEPSEEK_V4_PRO      = "deepseek-ai/deepseek-v4-0709"              # V4 Pro, 1M ctx, NVIDIA NIM free
+M_DEEPSEEK_V4_PRO      = "deepseek-ai/deepseek-v4-0709"              # DEAD — 404, wrong slug
+M_DEEPSEEK_OR          = "deepseek/deepseek-chat-v3-0324:free"        # OR free, confirmed
+M_DEEPSEEK_R1_OR       = "deepseek/deepseek-r1:free"                  # OR free, reasoning model
 M_QWEN3_NEXT_80B       = "qwen/qwen3-next-80b-a3b-instruct"          # trial-flagged
 M_QWEN35_122B          = "qwen/qwen3.5-122b-a10b"                    # trial-flagged, VLM
 M_QWEN35_397B          = "qwen/qwen3.5-397b-a17b"                    # trial-flagged, VLM
@@ -210,12 +212,13 @@ def get_web_debugger_final_chain():
     Returns complete fixed HTML.
     """
     return [
-        (gemini_large,      "gemini-2.5-flash",       "Gemini 2.5 Flash - Final"),            # 1M ctx, free
-        (nvidia_large,      M_DEEPSEEK_V4_NVIDIA,     "DeepSeek V4 Flash (NVIDIA) - Final"),  # 1M ctx, confirmed
-        (nvidia_large,      M_DEEPSEEK_V4_PRO,        "DeepSeek V4 Pro (NVIDIA) - Final"),    # 1M ctx
-        (nvidia_large,      M_MINIMAX_M27,            "MiniMax M2.7 (NVIDIA) - Final"),       # CONFIRMED LIVE
-        (nvidia_large,      M_KIMI_K2,                "Kimi K2.6 (NVIDIA) - Final"),          # CONFIRMED LIVE
-        (openrouter_large,  M_OWL_ALPHA,              "Owl Alpha (OR) - Final"),              # 1M ctx
+        (gemini_large,      "gemini-2.5-flash",   "Gemini 2.5 Flash - Final"),              # 1M ctx
+        (nvidia_large,      M_MINIMAX_M27,         "MiniMax M2.7 (NVIDIA) - Final"),         # confirmed
+        (nvidia_large,      M_KIMI_K2,             "Kimi K2.6 (NVIDIA) - Final"),            # confirmed
+        (openrouter_large,  M_DEEPSEEK_OR,         "DeepSeek V3 (OR free) - Final"),         # confirmed free
+        (openrouter_large,  M_DEEPSEEK_R1_OR,      "DeepSeek R1 (OR free) - Final"),         # reasoning
+        (nvidia_large,      M_DEEPSEEK_V4_NVIDIA,  "DeepSeek V4 Flash (NVIDIA) - Final"),    # confirmed
+        (openrouter_large,  M_OWL_ALPHA,           "Owl Alpha (OR) - Final"),                # 1M ctx
     ]
 
 def get_web_reviewer_chain():
