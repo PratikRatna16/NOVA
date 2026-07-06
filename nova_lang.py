@@ -676,30 +676,34 @@ def generate_fallback_css(html, css):
         return ""
     fallback = "\n/* === AUTO-GENERATED FALLBACK CSS === */\n"
     for cls in missing:
-        # INTERACTIVE — no !important, correct default states so JS can override
-        if any(k in cls for k in ["faq-answer", "accordion-content", "accordion-body", "accordion-answer"]):
+        # INTERACTIVE — correct default states, no !important
+        if any(k == cls for k in ["faq-answer", "accordion-content", "accordion-body", "accordion-answer"]):
             fallback += f".{cls} {{ display: none; padding: 1rem; border-top: 1px solid rgba(255,255,255,0.1); }}\n"
-        elif any(k in cls for k in ["faq", "accordion"]):
+        elif any(k == cls for k in ["faq", "faq-item", "accordion"]):
             fallback += f".{cls} {{ display: block; padding: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); }}\n"
-        elif any(k in cls for k in ["carousel-track", "slider-track", "testimonials-track"]):
+        elif any(k == cls for k in ["carousel-track", "slider-track", "testimonials-track"]):
             fallback += f".{cls} {{ display: flex; overflow: hidden; gap: 2rem; transition: transform 0.3s ease; }}\n"
-        elif any(k in cls for k in ["carousel", "slider"]):
+        elif any(k == cls for k in ["carousel", "slider", "carousel-wrapper", "testimonials-carousel"]):
             fallback += f".{cls} {{ overflow: hidden; position: relative; }}\n"
-        elif any(k in cls for k in ["nav-links", "nav-menu", "navbar-nav"]):
+        elif any(k == cls for k in ["nav-links", "nav-menu", "navbar-nav"]):
             fallback += f".{cls} {{ display: flex; gap: 2rem; list-style: none; align-items: center; }}\n"
-        # LAYOUT — no JS interaction, safe defaults
-        elif any(k in cls for k in ["grid"]):
-            cols = "repeat(3, 1fr)" if any(k in cls for k in ["pricing", "feature", "card", "col"]) else "repeat(auto-fit, minmax(280px, 1fr))"
+        # LAYOUT — exact class matches only, no substring sprawl
+        elif cls in ["features-grid", "pricing-grid", "testimonials-grid"]:
+            cols = "repeat(3, 1fr)" if "pricing" in cls or "features" in cls else "repeat(auto-fit, minmax(280px, 1fr))"
             fallback += f".{cls} {{ display: grid; grid-template-columns: {cols}; gap: 2rem; }}\n"
-        elif any(k in cls for k in ["card", "item", "tile", "box"]):
-            fallback += f".{cls} {{ background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 2rem; }}\n"
-        elif any(k in cls for k in ["footer"]):
-            fallback += f".{cls} {{ background: #0a0a0a; padding: 4rem 2rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; }}\n"
-        elif any(k in cls for k in ["section"]):
+        elif cls in ["feature-card", "pricing-card", "testimonial-card", "card"]:
+            fallback += f".{cls} {{ background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 2rem; }}\n"
+        # FOOTER — only root footer class, not every footer-* subclass
+        elif cls == "footer":
+            fallback += f".footer {{ background: #0a0a0a; padding: 4rem 2rem; }}\n"
+        elif cls in ["footer-grid", "footer-columns"]:
+            fallback += f".{cls} {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2rem; }}\n"
+        elif cls in ["section", "features-section", "pricing-section", "testimonials-section", "faq-section"]:
             fallback += f".{cls} {{ padding: 5rem 2rem; }}\n"
-        elif any(k in cls for k in ["btn", "button", "cta"]):
+        elif any(k in cls for k in ["btn", "button", "cta"]) and "container" not in cls:
             fallback += f".{cls} {{ display: inline-block; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; }}\n"
     return fallback
+
 
 def validate_interactive_css(html, css):
     """
