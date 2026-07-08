@@ -10,4 +10,5 @@ students.csv
 *.json
 *.csv
 *.txt
+!requirements.txt
 runs/
